@@ -17,6 +17,7 @@ from scenario1_discussion_cases import get_scenario1_discussion_cases
 from scenario2_discussion_cases import get_scenario2_discussion_cases
 from scenario3_discussion_cases import get_scenario3_discussion_cases
 from scenario4_discussion_cases import get_scenario4_discussion_cases
+from scenario5_discussion_cases import get_scenario5_discussion_cases
 
 
 class Classifier4ScenarioTester:
@@ -256,7 +257,7 @@ class Classifier4ScenarioTester:
         """모든 시나리오 테스트 실행"""
         print("🧪 MessageClassifier2 - 모든 시나리오 종합 테스트")
         print("=" * 80)
-        print("간소화된 Sum 방식 분류기로 4개 시나리오의 실제 토론 발언 분류 성능 검증")
+        print("간소화된 Sum 방식 분류기로 5개 시나리오의 실제 토론 발언 분류 성능 검증")
         if show_test_sentences:
             print("📝 모든 테스트 문장과 결과를 출력합니다.")
         print()
@@ -266,7 +267,8 @@ class Classifier4ScenarioTester:
             ("시나리오 1: 갓 구운 빵의 비밀", get_scenario1_discussion_cases()),
             ("시나리오 2: 알바생 혜경이의 열정", get_scenario2_discussion_cases()),
             ("시나리오 3: 신메뉴 개발 아이디어", get_scenario3_discussion_cases()),
-            ("시나리오 4: 고객 불만 응대", get_scenario4_discussion_cases())
+            ("시나리오 4: 고객 불만 응대", get_scenario4_discussion_cases()),
+            ("시나리오 5: 빕스 조리 근무자", get_scenario5_discussion_cases())
         ]
         
         total_correct = 0
@@ -384,7 +386,7 @@ class Classifier4ScenarioTester:
 def main():
     """메인 실행 함수"""
     print("MessageClassifier2 시나리오 테스트 시작")
-    print("간소화된 분류기의 성능을 검증합니다.")
+    print("간소화된 분류기의 성능을 검증합니다. (5개 시나리오 포함)")
     print()
     
     # 테스트 실행 (임계값 0.1로 설정 - 더 민감하게)
@@ -402,7 +404,7 @@ def main():
     
     print("\n" + "="*80)
     print("✨ MessageClassifier2 테스트 완료!")
-    print("간소화된 Sum 방식 분류기의 성능을 확인했습니다.")
+    print("간소화된 Sum 방식 분류기의 성능을 확인했습니다. (5개 시나리오 전체)")
     print("\n💡 모든 테스트 문장을 보려면:")
     print("   tester.run_all_tests(show_test_sentences=True) 로 실행하세요.")
     print("\n⚙️  임계값을 조정하려면:")
