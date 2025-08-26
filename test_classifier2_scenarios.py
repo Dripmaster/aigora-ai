@@ -12,7 +12,7 @@ from typing import Dict, List
 # 현재 디렉토리를 Python 경로에 추가
 sys.path.append(os.getcwd())
 
-from app.message_classifier4 import MessageClassifier4
+from app.message_classifier2 import MessageClassifier4
 from scenario1_discussion_cases import get_scenario1_discussion_cases
 from scenario2_discussion_cases import get_scenario2_discussion_cases
 from scenario3_discussion_cases import get_scenario3_discussion_cases
@@ -398,7 +398,7 @@ def main():
     
     # 전체 테스트 실행
     # 모든 테스트 문장을 보려면: show_test_sentences=True로 변경
-    tester.run_all_tests(show_details=False, show_test_sentences=False)
+    tester.run_all_tests(show_details=False, show_test_sentences=True)
     
     print("\n" + "="*80)
     print("✨ MessageClassifier2 테스트 완료!")
