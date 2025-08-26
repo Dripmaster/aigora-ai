@@ -192,8 +192,17 @@ class Classifier4ScenarioTester:
                     print(f"{i+1:3d}. {text}")
                     print(f"     예상: {expected} → 결과: {predicted} {status}")
                     print(f"     방법: {method}, 신뢰도: {confidence:.3f}")
-                    if predicted != expected:
+                    
+                    # 분류 실패나 오답인 경우 추가 정보 표시
+                    if predicted != expected or method == "classification_failed":
                         print(f"     점수: {result['cj_values']}")
+                        
+                        # 분류 실패 특별 표시
+                        if method == "classification_failed":
+                            print(f"     ⚠️  분류 실패: 모든 분류 방법이 임계값 미달")
+                            if result.get('summary'):
+                                print(f"     실패 원인: {result['summary']}")
+                    
                     if result.get('morphemes'):
                         print(f"     형태소: {result['morphemes']}")
                     print()
@@ -221,7 +230,8 @@ class Classifier4ScenarioTester:
         for method, count in scenario_results["method_stats"].items():
             if count > 0:
                 percentage = count / scenario_results["total"] * 100
-                print(f"  {method}: {count}개 ({percentage:.1f}%)")
+                status_icon = "⚠️ " if method == "classification_failed" else ""
+                print(f"  {status_icon}{method}: {count}개 ({percentage:.1f}%)")
         
         # 인재상별 정확도
         print(f"인재상별 정확도:")
@@ -231,13 +241,19 @@ class Classifier4ScenarioTester:
         
         return scenario_results
     
-    def show_error_analysis(self, scenario_name: str, errors: list, max_errors: int = 3):
-        """오분류 사례 분석"""
+    def show_error_analysis(self, scenario_name: str, errors: list, max_errors: int = None):
+        """오분류 사례 분석 - 모든 오답 표시"""
         if not errors:
             print(f"\n{scenario_name}: 모든 테스트 케이스가 정확히 분류되었습니다! 🎉")
             return
         
-        print(f"\n{scenario_name} 오분류 사례 분석 (총 {len(errors)}개 중 {min(max_errors, len(errors))}개):")
+        # max_errors가 None이면 모든 오답을 표시
+        if max_errors is None:
+            max_errors = len(errors)
+            print(f"\n{scenario_name} 오분류 사례 분석 (총 {len(errors)}개 전체):")
+        else:
+            print(f"\n{scenario_name} 오분류 사례 분석 (총 {len(errors)}개 중 {min(max_errors, len(errors))}개):")
+        
         print("-" * 80)
         
         for i, error in enumerate(errors[:max_errors]):
@@ -246,11 +262,15 @@ class Classifier4ScenarioTester:
             print(f"   방법: {error['method']}, 신뢰도: {error['confidence']:.3f}")
             print(f"   점수: {error['scores']}")
             
-            # 점수 차이 분석
-            expected_score = error['scores'][error['expected']]
-            predicted_score = error['scores'][error['predicted']]
-            score_diff = predicted_score - expected_score
-            print(f"   점수 차이: {error['predicted']}({predicted_score}) - {error['expected']}({expected_score}) = {score_diff:+d}")
+            # 분류 실패 특별 표시
+            if error['method'] == 'classification_failed':
+                print(f"   ⚠️  분류 실패: 모든 분류 방법이 임계값 미달")
+            else:
+                # 점수 차이 분석 (분류 실패가 아닌 경우만)
+                expected_score = error['scores'][error['expected']]
+                predicted_score = error['scores'][error['predicted']]
+                score_diff = predicted_score - expected_score
+                print(f"   점수 차이: {error['predicted']}({predicted_score}) - {error['expected']}({expected_score}) = {score_diff:+d}")
             print()
     
     def run_all_tests(self, show_details: bool = False, show_test_sentences: bool = False):
@@ -294,7 +314,8 @@ class Classifier4ScenarioTester:
         for method, count in self.results["method_stats"].items():
             if count > 0:
                 percentage = count / total_tests * 100
-                print(f"  {method}: {count}개 ({percentage:.1f}%)")
+                status_icon = "⚠️ " if method == "classification_failed" else ""
+                print(f"  {status_icon}{method}: {count}개 ({percentage:.1f}%)")
         print()
         
         # 시나리오별 요약
@@ -314,10 +335,13 @@ class Classifier4ScenarioTester:
         print("="*80)
         
         for scenario_name, results in self.results["scenarios"].items():
-            self.show_error_analysis(scenario_name, results["errors"])
+            self.show_error_analysis(scenario_name, results["errors"], max_errors=None)  # 모든 오답 표시
         
         # 성능 비교 및 분석
         self.show_performance_analysis(overall_accuracy, total_tests)
+        
+        # 오답 문장들을 파일로 저장
+        self.save_incorrect_sentences()
     
     def show_overall_trait_stats(self):
         """전체 인재상별 통계"""
@@ -357,11 +381,15 @@ class Classifier4ScenarioTester:
         print(f"  - 명시적 인재상 키워드: {explicit_rate:.1f}% ({explicit_success}개)")
         print(f"  - 키워드 매칭 성공률: {keyword_rate:.1f}% ({keyword_success}개)")
         print(f"  - Sum 유사도 성공률: {similarity_rate:.1f}% ({similarity_success}개)")
-        print(f"  - 분류 실패율: {failure_rate:.1f}% ({failed_classifications}개)")
+        print(f"  - ⚠️  분류 실패율: {failure_rate:.1f}% ({failed_classifications}개)")
         
         print(f"\n💡 성능 개선 제안:")
         if failure_rate > 15:
-            print(f"  - 분류 실패율이 {failure_rate:.1f}%로 높습니다. 유사도 임계값({self.classifier.similarity_threshold}) 조정을 고려하세요.")
+            print(f"  - ⚠️  분류 실패율이 {failure_rate:.1f}%로 높습니다!")
+            print(f"    → 유사도 임계값({self.classifier.similarity_threshold}) 조정을 고려하세요.")
+            print(f"    → Word2Vec 모델 로드 상태를 확인하세요.")
+        if failure_rate > 0:
+            print(f"  - 분류 실패 케이스 {failed_classifications}개가 발견되었습니다.")
         if similarity_rate < 10:
             print("  - Sum 유사도 기반 분류가 적습니다. Word2Vec 모델 경로와 품질을 확인하세요.")
         if keyword_rate > 80:
@@ -377,8 +405,144 @@ class Classifier4ScenarioTester:
         elif accuracy >= 65:
             print("  ⚠️  보통 성능입니다. 개선을 고려하세요.")
         else:
-            print("  🔧 성능 개선이 필요합니다.")    
+            print("  🔧 성능 개선이 필요합니다.")
+    
+    def save_incorrect_sentences(self):
+        """오답 문장들을 텍스트 파일로 저장"""
+        from datetime import datetime
         
+        # 현재 시각으로 파일명 생성
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"incorrect_sentences_{timestamp}.txt"
+        
+        # 모든 시나리오의 오답 문장들 수집
+        all_errors = []
+        total_errors = 0
+        
+        print("📋 오답 수집 상황:")
+        for scenario_name, results in self.results["scenarios"].items():
+            scenario_errors = results["errors"]
+            print(f"  - {scenario_name}: {len(scenario_errors)}개 오답")
+            total_errors += len(scenario_errors)
+            
+            for error in scenario_errors:
+                all_errors.append({
+                    "scenario": scenario_name,
+                    "text": error["text"],
+                    "expected": error["expected"],
+                    "predicted": error["predicted"],
+                    "method": error["method"],
+                    "confidence": error["confidence"],
+                    "scores": error["scores"]
+                })
+        
+        print(f"📊 총 수집된 오답: {len(all_errors)}개 (예상: {total_errors}개)")
+        
+        if total_errors == 0:
+            print("🎉 모든 문장이 정확히 분류되어 오답 파일을 생성하지 않습니다!")
+            return
+        
+        # 파일에 오답 문장들 저장
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write("# MessageClassifier2 오답 문장 분석 결과\n")
+                f.write(f"# 생성 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"# 총 오답 개수: {total_errors}개\n")
+                f.write("=" * 80 + "\n\n")
+                
+                # 시나리오별로 그룹화하여 저장
+                current_scenario = ""
+                error_count = 1
+                
+                try:
+                    for error in all_errors:
+                        # 새로운 시나리오 시작
+                        if error["scenario"] != current_scenario:
+                            current_scenario = error["scenario"]
+                            f.write(f"\n## {current_scenario}\n")
+                            f.write("-" * 50 + "\n\n")
+                            f.flush()  # 버퍼 강제 쓰기
+                        
+                        # 오답 정보 저장
+                        f.write(f"{error_count}. 문장: {error['text']}\n")
+                        f.write(f"   예상: {error['expected']} → 결과: {error['predicted']}\n")
+                        f.write(f"   분류방법: {error['method']}\n")
+                        f.write(f"   신뢰도: {error['confidence']:.3f}\n")
+                        f.write(f"   점수: {error['scores']}\n")
+                        
+                        # 분류 실패 특별 표시
+                        if error['method'] == 'classification_failed':
+                            f.write(f"   ⚠️  분류 실패: 모든 분류 방법이 임계값 미달\n")
+                        else:
+                            # 점수 차이 계산 (분류 실패가 아닌 경우만)
+                            try:
+                                expected_score = error['scores'][error['expected']]
+                                predicted_score = error['scores'][error['predicted']]
+                                score_diff = predicted_score - expected_score
+                                f.write(f"   점수차이: {error['predicted']}({predicted_score}) - {error['expected']}({expected_score}) = {score_diff:+d}\n")
+                            except KeyError as e:
+                                f.write(f"   점수차이: 계산 오류 - {e}\n")
+                        
+                        f.write("\n")
+                        f.flush()  # 각 오답마다 버퍼 강제 쓰기
+                        error_count += 1
+                        
+                except Exception as write_error:
+                    f.write(f"\n❌ 오답 저장 중 오류 발생 (#{error_count}): {write_error}\n")
+                    f.write(f"남은 오답 수: {len(all_errors) - error_count + 1}개\n")
+                    f.flush()
+                
+                # 통계 정보 추가
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("## 오답 통계 분석\n")
+                f.write("=" * 80 + "\n\n")
+                
+                # 시나리오별 오답 수
+                f.write("### 시나리오별 오답 개수:\n")
+                for scenario_name, results in self.results["scenarios"].items():
+                    error_count = len(results["errors"])
+                    total_count = results["total"]
+                    error_rate = error_count / total_count * 100 if total_count > 0 else 0
+                    f.write(f"- {scenario_name}: {error_count}개 (전체 {total_count}개 중 {error_rate:.1f}%)\n")
+                
+                f.write("\n")
+                
+                # 분류 방법별 오답 통계
+                method_errors = {}
+                for error in all_errors:
+                    method = error["method"]
+                    method_errors[method] = method_errors.get(method, 0) + 1
+                
+                f.write("### 분류 방법별 오답 개수:\n")
+                for method, count in method_errors.items():
+                    percentage = count / total_errors * 100
+                    f.write(f"- {method}: {count}개 ({percentage:.1f}%)\n")
+                
+                f.write("\n")
+                
+                # 인재상별 오답 통계  
+                trait_errors = {}
+                for error in all_errors:
+                    expected = error["expected"]
+                    predicted = error["predicted"]
+                    key = f"{expected} → {predicted}"
+                    trait_errors[key] = trait_errors.get(key, 0) + 1
+                
+                f.write("### 인재상별 오답 패턴 (상위 10개):\n")
+                sorted_trait_errors = sorted(trait_errors.items(), key=lambda x: x[1], reverse=True)
+                for pattern, count in sorted_trait_errors[:10]:
+                    percentage = count / total_errors * 100
+                    f.write(f"- {pattern}: {count}개 ({percentage:.1f}%)\n")
+            
+            print(f"\n📄 오답 문장 분석 결과가 '{filename}' 파일에 저장되었습니다.")
+            print(f"   총 {total_errors}개의 오답 문장과 상세 분석이 포함되어 있습니다.")
+            print(f"   실제 저장된 오답: {error_count-1}개")
+            
+            if error_count-1 != total_errors:
+                print(f"⚠️  경고: 예상 오답 수({total_errors})와 저장된 오답 수({error_count-1})가 다릅니다!")
+            
+        except Exception as e:
+            print(f"❌ 오답 파일 저장 중 오류 발생: {e}")
         
         
 
