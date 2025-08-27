@@ -1,11 +1,13 @@
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi import Form
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
 from typing import Dict, Optional, List
 from app.question_generator import QuestionGenerator
-from app.message_classifier import MessageClassifier
+from app.message_classifier2 import MessageClassifier2
 
 load_dotenv()
 
@@ -17,7 +19,7 @@ app = FastAPI(
 
 # 초기화
 question_generator = QuestionGenerator()
-message_classifier = MessageClassifier()
+message_classifier = MessageClassifier2()
 
 class QuestionRequest(BaseModel):
     user_id: str
@@ -97,13 +99,12 @@ async def classify(request: ClassifyRequest):
         # 메시지 분류 수행
         result = message_classifier.classify(
             request.text, 
-            request.user_id, 
-            request.context
+            request.user_id
         )
         
         return ClassifyResponse(
             cj_values=result["cj_values"],
-            primary_trait=result["primary_trait"],
+            primary_trait=result["multiple_traits"],
             summary=result["summary"],
             user_id=request.user_id
         )
@@ -144,6 +145,50 @@ async def profile(request: ProfileRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"프로필 생성 중 오류 발생: {str(e)}")
 
+@app.get("/form", response_class=HTMLResponse)
+async def form_page():
+    html_content = """
+    <html>
+        <head><title>CJ AI 테스트 폼</title></head>
+        <body>
+            <h2>CJ 인재상 메시지 분류 테스트</h2>
+            <form action="/form/result" method="post">
+                <label>사용자 ID:</label><br>
+                <input type="text" name="user_id" required><br><br>
+                <label>메시지:</label><br>
+                <textarea name="text" rows="4" cols="50" required></textarea><br><br>
+                <input type="submit" value="분석하기">
+            </form>
+        </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+
+@app.post("/form/result", response_class=HTMLResponse)
+async def form_result(user_id: str = Form(...), text: str = Form(...)):
+    try:
+        request = ClassifyRequest(user_id=user_id, text=text)
+        result = message_classifier.classify(request.text, request.user_id)
+
+        html_content = f"""
+        <html>
+            <head><title>분석 결과</title></head>
+            <body>
+                <h2>분석 결과</h2>
+                <p><strong>사용자 ID:</strong> {user_id}</p>
+                <p><strong>주된 가치:</strong> {result['multiple_traits']}</p>
+                <p><strong>요약:</strong> {result['summary']}</p>
+                <p><strong>전체 값:</strong> {result['cj_values']}</p>
+                <br><a href="/form">다시 분석하기</a>
+            </body>
+        </html>
+        """
+        return HTMLResponse(content=html_content)
+
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>오류 발생: {str(e)}</h3>")
+    
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
