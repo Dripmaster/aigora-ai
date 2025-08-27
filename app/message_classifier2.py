@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-MessageClassifier4 - 간소화된 Sum 방식 유사도 CJ 인재상 분류기
+MessageClassifier4 - 간소화된 Sum 방식 유사도 CJ 인재상 분류기 (다중 인재상 지원)
 
 특징:
 1. Sum 방식 Word2Vec 유사도 계산 (핵심 기능 유지)
 2. KoNLPy 형태소 분석 (핵심 기능 유지) 
 3. 단순화된 키워드 매칭 (2단계)
 4. 간소화된 코드 구조
+5. 일정 점수 이상의 여러 인재상 동시 분류 지원
 """
 
 import re
@@ -17,11 +18,18 @@ from gensim.models import KeyedVectors
 
 
 class MessageClassifier4:
-    """간소화된 Sum 방식 CJ 인재상 분류기 (Version 4)"""
+    """간소화된 Sum 방식 CJ 인재상 분류기 (다중 인재상 지원)"""
     
-    def __init__(self, similarity_threshold=0.1):
+    def __init__(self, 
+                 similarity_threshold=0.1,
+                 multi_trait_threshold=0.8,    # 최고점의 80% 이상
+                 min_trait_score=60,           # 최소 60점 이상  
+                 max_traits=3):                # 최대 3개까지
         """분류기 초기화"""
         self.similarity_threshold = similarity_threshold
+        self.multi_trait_threshold = multi_trait_threshold
+        self.min_trait_score = min_trait_score
+        self.max_traits = max_traits
         self.logger = logging.getLogger(__name__)
         
         # KoNLPy 초기화
@@ -40,7 +48,7 @@ class MessageClassifier4:
             "정직": [
                 "솔직", "사실", "진실", "정직", "투명",
                 "신뢰", "믿음", "인정", "양심", "사과", "고백", "진솔", "참",
-                "믿", "정확", "털어놓" ,"진심"
+                "믿", "정확", "털어놓", "진심"
             ],
             "열정": [
                 "열정", "적극", "최선", "열심", "도전", "의욕", "헌신", "활기", "열의",
@@ -57,13 +65,14 @@ class MessageClassifier4:
                 "배려", "존중", "경청", "공감", "이해", "친절", "포용", "겸손",
                 "소통", "팀워크", "도움", "지원", "협조", "협력", "화합", "매너",
                 "함께", "서로", "같이", "입장", "대화", "상대",
-                "생각하", "느끼", "고려하", "위하", "도와","예의"
+                "생각하", "느끼", "고려하", "위하", "도와", "예의"
             ]
         }
         
         self.logger.info(f"MessageClassifier4 초기화 완료")
         self.logger.info(f"형태소 분석: {'활성화' if self.morphs_enabled else '비활성화'}")
-        self.logger.info(f"Word2Vec: {'로드됨' if self.word2vec_model else '로드 실패'}")
+        self.logger.info(f"Word2Vec: {'로드됨' if self.word2vec_model else '로드 실패'}") 
+        self.logger.info(f"다중 분류 설정: 임계값={multi_trait_threshold}, 최소점수={min_trait_score}, 최대개수={max_traits}")
     
     def _load_word2vec_model(self):
         """Word2Vec 모델 로드 (간소화)"""
@@ -169,13 +178,39 @@ class MessageClassifier4:
         
         return normalized
     
+    def _select_multiple_traits(self, normalized_scores):
+        """다중 인재상 선별 로직 (간소화)"""
+        # 점수 순으로 정렬
+        sorted_traits = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
+        
+        if not sorted_traits or sorted_traits[0][1] == 0:
+            return [], {}
+        
+        # 최고점과 임계값 계산
+        max_score = sorted_traits[0][1]
+        threshold_score = max(max_score * self.multi_trait_threshold, self.min_trait_score)
+        
+        # 기준을 만족하는 인재상들 선별
+        selected_traits = []
+        trait_details = {}
+        
+        for trait, score in sorted_traits[:self.max_traits]:
+            if score >= threshold_score:
+                selected_traits.append(trait)
+                trait_details[trait] = {"score": score, "confidence": score / 100.0}
+            else:
+                break
+        
+        return selected_traits, trait_details
+    
     def classify(self, text, user_id=""):
-        """메시지 분류 메인 함수"""
+        """메시지 분류 메인 함수 - 다중 인재상 지원"""
         # 빈 메시지 처리
         if not text or len(text.strip()) < 2:
             return {
                 "cj_values": {"정직": 0, "열정": 0, "창의": 0, "존중": 0},
                 "primary_trait": "무응답",
+                "multiple_traits": [],
                 "summary": "메시지가 너무 짧음",
                 "method": "skip",
                 "confidence": 0.0,
@@ -184,17 +219,22 @@ class MessageClassifier4:
         
         # 명시적 인재상 키워드 검출
         text_lower = text.lower()
+        explicit_traits = []
         for trait in ["정직", "열정", "창의", "존중"]:
             if trait in text_lower:
-                morphemes = self._analyze_morphemes(text)
-                return {
-                    "cj_values": {t: 100 if t == trait else 0 for t in ["정직", "열정", "창의", "존중"]},
-                    "primary_trait": trait,
-                    "summary": f"명시적 '{trait}' 키워드 검출",
-                    "method": "explicit_trait",
-                    "confidence": 1.0,
-                    "morphemes": morphemes
-                }
+                explicit_traits.append(trait)
+        
+        if explicit_traits:
+            morphemes = self._analyze_morphemes(text)
+            return {
+                "cj_values": {t: 100 if t in explicit_traits else 0 for t in ["정직", "열정", "창의", "존중"]},
+                "primary_trait": explicit_traits[0],
+                "multiple_traits": explicit_traits,
+                "summary": f"명시적 키워드 검출: {', '.join(explicit_traits)}",
+                "method": "explicit_trait",
+                "confidence": 1.0,
+                "morphemes": morphemes
+            }
         
         # 형태소 분석
         morphemes = self._analyze_morphemes(text)
@@ -202,6 +242,7 @@ class MessageClassifier4:
             return {
                 "cj_values": {"정직": 0, "열정": 0, "창의": 0, "존중": 0},
                 "primary_trait": "분석실패",
+                "multiple_traits": [],
                 "summary": "형태소 분석 실패",
                 "method": "analysis_failed",
                 "confidence": 0.0,
@@ -212,17 +253,21 @@ class MessageClassifier4:
         keyword_scores = self._calculate_keyword_scores(morphemes, text)
         if sum(keyword_scores.values()) > 0:
             normalized_scores = self._normalize_scores(keyword_scores)
-            primary_trait = max(normalized_scores, key=normalized_scores.get)
-            confidence = normalized_scores[primary_trait] / 100.0
+            selected_traits, trait_details = self._select_multiple_traits(normalized_scores)
             
-            return {
-                "cj_values": normalized_scores,
-                "primary_trait": primary_trait,
-                "summary": f"키워드 매칭으로 '{primary_trait}' 분류",
-                "method": "keyword_matching",
-                "confidence": confidence,
-                "morphemes": morphemes
-            }
+            if selected_traits:
+                primary_trait = selected_traits[0]
+                confidence = normalized_scores[primary_trait] / 100.0
+                
+                return {
+                    "cj_values": normalized_scores,
+                    "primary_trait": primary_trait,
+                    "multiple_traits": selected_traits,
+                    "summary": f"키워드 매칭으로 '{primary_trait}' 분류",
+                    "method": "keyword_matching", 
+                    "confidence": confidence,
+                    "morphemes": morphemes
+                }
         
         # Sum 유사도 분석
         if self.word2vec_model:
@@ -235,22 +280,27 @@ class MessageClassifier4:
             
             if max_similarity >= threshold:
                 normalized_scores = self._normalize_scores(similarity_scores)
-                best_trait = max(normalized_scores, key=normalized_scores.get)
-                confidence = min(1.0, max_similarity / len(morphemes))
+                selected_traits, trait_details = self._select_multiple_traits(normalized_scores)
                 
-                return {
-                    "cj_values": normalized_scores,
-                    "primary_trait": best_trait,
-                    "summary": f"유사도 분석으로 '{best_trait}' 분류 (합계: {max_similarity:.3f})",
-                    "method": "sum_similarity", 
-                    "confidence": confidence,
-                    "morphemes": morphemes
-                }
+                if selected_traits:
+                    primary_trait = selected_traits[0]
+                    confidence = min(1.0, max_similarity / len(morphemes))
+                    
+                    return {
+                        "cj_values": normalized_scores,
+                        "primary_trait": primary_trait,
+                        "multiple_traits": selected_traits,
+                        "summary": f"유사도 분석으로 '{primary_trait}' 분류 (합계: {max_similarity:.3f})",
+                        "method": "sum_similarity", 
+                        "confidence": confidence,
+                        "morphemes": morphemes
+                    }
         
         # 분류 실패
         return {
             "cj_values": {"정직": 0, "열정": 0, "창의": 0, "존중": 0},
             "primary_trait": "분류실패",
+            "multiple_traits": [],
             "summary": "모든 분류 방법 임계값 미달",
             "method": "classification_failed",
             "confidence": 0.0,
@@ -298,3 +348,17 @@ class MessageClassifier4:
             "success_rate": round(success_rate * 100, 1),
             "overall_summary": f"{user_id}님의 주요 특성: {', '.join([trait for trait, _ in top_traits[:2]])}"
         }
+    
+    def get_classification_stats(self):
+        """분류기 설정 정보 반환 (간소화)"""
+        return {
+            "classifier_type": "MessageClassifier4",
+            "similarity_threshold": self.similarity_threshold,
+            "multi_trait_threshold": self.multi_trait_threshold,
+            "min_trait_score": self.min_trait_score,
+            "max_traits": self.max_traits,
+            "morphs_enabled": self.morphs_enabled,
+            "word2vec_loaded": self.word2vec_model is not None
+        }
+
+
