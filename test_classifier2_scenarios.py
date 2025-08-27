@@ -12,7 +12,7 @@ from typing import Dict, List
 # 현재 디렉토리를 Python 경로에 추가
 sys.path.append(os.getcwd())
 
-from app.message_classifier2 import MessageClassifier4
+from app.message_classifier2 import MessageClassifier2
 from scenario1_discussion_cases import get_scenario1_discussion_cases
 from scenario2_discussion_cases import get_scenario2_discussion_cases
 from scenario3_discussion_cases import get_scenario3_discussion_cases
@@ -20,11 +20,11 @@ from scenario4_discussion_cases import get_scenario4_discussion_cases
 from scenario5_discussion_cases import get_scenario5_discussion_cases
 
 
-class Classifier4ScenarioTester:
-    """MessageClassifier4로 모든 시나리오 테스트"""
+class Classifier2ScenarioTester:
+    """MessageClassifier2로 모든 시나리오 테스트"""
     
     def __init__(self, similarity_threshold=0.1):
-        self.classifier = MessageClassifier4(similarity_threshold)
+        self.classifier = MessageClassifier2(similarity_threshold)
         
         # 모델 초기화 상태 확인
         self._check_model_status()
@@ -46,7 +46,7 @@ class Classifier4ScenarioTester:
     
     def _check_model_status(self):
         """모델 초기화 상태 확인 및 출력"""
-        print("🔍 MessageClassifier4 모델 상태 확인")
+        print("🔍 MessageClassifier2 모델 상태 확인")
         print("=" * 50)
         
         # KoNLPy 형태소 분석기 상태
@@ -146,7 +146,7 @@ class Classifier4ScenarioTester:
             expected = case["expected_primary"]
             
             try:
-                # MessageClassifier4로 분류
+                # MessageClassifier2로 분류
                 result = self.classifier.classify(text, f"{scenario_name}_{i}")
                 predicted = result["primary_trait"]
                 method = result.get("method", "unknown")
@@ -554,7 +554,7 @@ def main():
     print()
     
     # 테스트 실행 (임계값 0.1로 설정 - 더 민감하게)
-    tester = Classifier4ScenarioTester(similarity_threshold=0.1)
+    tester = Classifier2ScenarioTester(similarity_threshold=0.1)
     
     print("테스트 출력 옵션:")
     print("- 요약만: show_details=False, show_test_sentences=False")
@@ -572,7 +572,7 @@ def main():
     print("\n💡 모든 테스트 문장을 보려면:")
     print("   tester.run_all_tests(show_test_sentences=True) 로 실행하세요.")
     print("\n⚙️  임계값을 조정하려면:")
-    print("   Classifier4ScenarioTester(similarity_threshold=0.1) 처럼 생성하세요.")
+    print("   Classifier2ScenarioTester(similarity_threshold=0.1) 처럼 생성하세요.")
     print("   - 핵심 기능: 유지 (형태소 분석 + Sum 유사도)")
     print("   - 간소화: 키워드 매칭, Word2Vec 로드, 문맥 패턴")
 
