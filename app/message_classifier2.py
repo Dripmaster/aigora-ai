@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-MessageClassifier4 - 간소화된 Sum 방식 유사도 CJ 인재상 분류기 (다중 인재상 지원)
+MessageClassifier2 - 간소화된 Sum 방식 유사도 CJ 인재상 분류기 (다중 인재상 지원)
 
 특징:
 1. Sum 방식 Word2Vec 유사도 계산 (핵심 기능 유지)
@@ -17,7 +17,7 @@ from konlpy.tag import Okt
 from gensim.models import KeyedVectors
 
 
-class MessageClassifier4:
+class MessageClassifier2:
     """간소화된 Sum 방식 CJ 인재상 분류기 (다중 인재상 지원)"""
     
     def __init__(self, 
@@ -47,19 +47,19 @@ class MessageClassifier4:
         self.cj_keywords = {
             "정직": [
                 "솔직", "사실", "진실", "정직", "투명",
-                "신뢰", "믿음", "인정", "양심", "사과", "고백", "진솔", "참",
-                "믿", "정확", "털어놓", "진심"
+                "신뢰", "믿음", "인정", "양심", "사과", "고백", "진솔",
+                "정확", "털어놓"
             ],
             "열정": [
                 "열정", "적극", "최선", "열심", "도전", "의욕", "헌신", "활기", "열의",
-                "몰입", "끈기", "용기", "투지", "노력",
-                "좋아하", "빠지", "최고", "최선", "전력", "의지"
+                "몰입", "끈기", "용기", "투지", "열심",
+                "좋아하", "빠지", "최고", "최선", "전력", "의지", "활력"
             ],
             "창의": [
                 "혁신", "아이디어", "독창", "창의", "창조", "기발", "참신", "독특",
                 "변화", "발견", "실험", "설계", "구상",
-                "새롭다", "색다르", "특별", "신선", "특이", "재미있", "흥미롭",
-                "제안", "떠올리", "만들", "상상력"
+                "색다르", "특별", "신선", "특이", "재미있", "흥미롭",
+                "제안", "떠올리", "상상력"
             ],
             "존중": [
                 "배려", "존중", "경청", "공감", "이해", "친절", "포용", "겸손",
@@ -69,7 +69,7 @@ class MessageClassifier4:
             ]
         }
         
-        self.logger.info(f"MessageClassifier4 초기화 완료")
+        self.logger.info(f"MessageClassifier2 초기화 완료")
         self.logger.info(f"형태소 분석: {'활성화' if self.morphs_enabled else '비활성화'}")
         self.logger.info(f"Word2Vec: {'로드됨' if self.word2vec_model else '로드 실패'}") 
         self.logger.info(f"다중 분류 설정: 임계값={multi_trait_threshold}, 최소점수={min_trait_score}, 최대개수={max_traits}")
@@ -352,7 +352,7 @@ class MessageClassifier4:
     def get_classification_stats(self):
         """분류기 설정 정보 반환 (간소화)"""
         return {
-            "classifier_type": "MessageClassifier4",
+            "classifier_type": "MessageClassifier2",
             "similarity_threshold": self.similarity_threshold,
             "multi_trait_threshold": self.multi_trait_threshold,
             "min_trait_score": self.min_trait_score,
