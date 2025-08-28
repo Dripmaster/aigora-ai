@@ -183,27 +183,27 @@ class MessageClassifier2:
         return normalized
     
     def _select_multiple_traits(self, normalized_scores):
-        """다중 인재상 선별 로직 (간소화)"""
+        """다중 인재상 선별 로직 - 상위 2개 인재상 점수 차이가 20점 이하면 둘 다 출력"""
         # 점수 순으로 정렬
         sorted_traits = sorted(normalized_scores.items(), key=lambda x: x[1], reverse=True)
         
         if not sorted_traits or sorted_traits[0][1] == 0:
             return [], {}
         
-        # 최고점과 임계값 계산
-        max_score = sorted_traits[0][1]
-        threshold_score = max(max_score * self.multi_trait_threshold, self.min_trait_score)
-        
-        # 기준을 만족하는 인재상들 선별
         selected_traits = []
         trait_details = {}
         
-        for trait, score in sorted_traits[:self.max_traits]:
-            if score >= threshold_score:
-                selected_traits.append(trait)
-                trait_details[trait] = {"score": score, "confidence": score / 100.0}
-            else:
-                break
+        # 1위는 항상 포함
+        first_trait, first_score = sorted_traits[0]
+        selected_traits.append(first_trait)
+        trait_details[first_trait] = {"score": first_score, "confidence": first_score / 100.0}
+        
+        # 2위가 있고 1위와 점수 차이가 20점 이하면 포함
+        if len(sorted_traits) > 1:
+            second_trait, second_score = sorted_traits[1]
+            if second_score > 0 and (first_score - second_score) <= 20:
+                selected_traits.append(second_trait)
+                trait_details[second_trait] = {"score": second_score, "confidence": second_score / 100.0}
         
         return selected_traits, trait_details
     
