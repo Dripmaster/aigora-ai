@@ -8,6 +8,7 @@ import os
 from typing import Dict, Optional, List
 from app.question_generator import QuestionGenerator
 from app.message_classifier2 import MessageClassifier2
+from app.discussion_evaluator import PersonalEvaluator
 
 load_dotenv()
 
@@ -20,6 +21,7 @@ app = FastAPI(
 # 초기화
 question_generator = QuestionGenerator()
 message_classifier = MessageClassifier2()
+discussion_evaluator = PersonalEvaluator()
 
 class QuestionRequest(BaseModel):
     user_id: str
@@ -37,7 +39,7 @@ class ClassifyRequest(BaseModel):
 
 class ClassifyResponse(BaseModel):
     cj_values: Dict[str, int]
-    primary_trait: str
+    primary_trait: List[str]
     summary: str
     user_id: str
 
@@ -51,6 +53,24 @@ class ProfileResponse(BaseModel):
     avg_cj_values: Dict[str, int]
     top_traits: List[str]
     overall_summary: str
+    
+class EvaluationRequest(BaseModel):
+    user_id: str
+    user_messages: List[Dict]
+    discussion_context: Optional[Dict] = None
+
+class EvaluationResponse(BaseModel):
+    user_id: str
+    overall_score: int
+    cj_trait_scores: Dict[str, int]
+    participation_summary: str
+    strengths: List[str]
+    improvements: List[str]
+    personalized_feedback: str
+    top_messages: List[str]
+    evaluation_date: str
+    message_count: int
+    evaluation_method: str
 
 @app.get("/")
 async def root():
@@ -61,7 +81,8 @@ async def root():
         "endpoints": {
             "/question": "토론 참여 유도 질문 생성",
             "/classify": "메시지 CJ 인재상 분류",
-            "/profile": "사용자 종합 프로필 생성"
+            "/profile": "사용자 종합 프로필 생성",
+            "/evaluate": "개인 맞춤형 토론 총평 생성"
         }
     }
 
@@ -144,6 +165,30 @@ async def profile(request: ProfileRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"프로필 생성 중 오류 발생: {str(e)}")
+    
+@app.post("/evaluate", response_model=EvaluationResponse)
+async def evaluate_user(request: EvaluationRequest):
+    """개별 사용자의 토론 참여 총평 생성"""
+    try:
+        # 입력 검증
+        if not request.user_id:
+            raise HTTPException(status_code=400, detail="사용자 ID가 필요합니다")
+                 
+        if not request.user_messages:
+            raise HTTPException(status_code=400, detail="분석할 메시지가 없습니다")
+                 
+        # 개인 맞춤형 토론 총평 생성
+        evaluation_result = personal_evaluator.evaluate_user(
+                     request.user_id,
+                     request.user_messages,
+                  request.discussion_context
+        )    
+        return EvaluationResponse(**evaluation_result)
+             
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"총평 생성 중 오류 발생: {str(e)}")
 
 @app.get("/form", response_class=HTMLResponse)
 async def form_page():
