@@ -8,10 +8,10 @@ from .message_classifier import MessageClassifier
 
 load_dotenv()
 
-class DiscussionEvaluator:
+class PersonalEvaluator:
     """
-    CJ 식음 서비스 매니저 교육용 토론 총평 생성기
-    토론 종료 후 참여자별 종합 평가 및 맞춤형 피드백 제공
+    CJ 식음 서비스 매니저 교육용 개인 토론 총평 생성기
+    개별 참여자의 토론 성과를 종합 평가하여 맞춤형 피드백 제공
     """
 
     def __init__(self):
@@ -20,36 +20,37 @@ class DiscussionEvaluator:
             self.client = OpenAI(api_key=self.api_key)
             self.gpt_enabled = True
             self.model = "gpt-4o-mini"
-            print(f"DiscussionEvaluator: OpenAI API 키 설정 완료")
+            print(f"PersonalEvaluator: OpenAI API 키 설정 완료")
         else:
             self.gpt_enabled = False
-            print("DiscussionEvaluator: OpenAI API 키 설정 실패 - 기본 총평 사용")
+            print("PersonalEvaluator: OpenAI API 키 설정 실패 - 기본 총평 사용")
 
         # 기존 분류기 활용
         self.classifier = MessageClassifier()
 
-        # GPT 총평 생성 프롬프트
+        # GPT 개인 총평 생성 프롬프트
         self.evaluation_prompt = """당신은 CJ 식음 서비스 매니저 교육 프로그램의 전문 평가자입니다.
 
-토론 참여자의 모든 발언을 종합하여 다음 기준으로 상세한 총평을 작성해주세요:
+개별 참여자의 토론 발언을 종합 분석하여 개인 맞춤형 총평을 작성해주세요:
 
-**CJ 인재상 평가 기준:**
-- 정직: 투명하고 진실된 소통, 솔직한 의견 표현
-- 열정: 적극적이고 헌신적인 자세, 도전 정신
-- 창의: 혁신적이고 새로운 접근, 아이디어 제시
-- 존중: 고객과 동료를 배려하는 마음, 경청과 공감
+**CJ 인재상 개인 평가 기준:**
+- 정직: 솔직하고 투명한 의견 표현, 진실된 소통 태도
+- 열정: 적극적 참여 의지, 업무에 대한 헌신과 도전 정신
+- 창의: 새로운 아이디어 제시, 문제 해결의 혁신적 접근
+- 존중: 타인 배려, 경청과 공감을 통한 협력적 자세
 
-**평가 방식:**
-1. 각 CJ 인재상별로 0-100점 점수 부여
-2. 전체 발언에서 나타난 주요 강점 3개 도출
-3. 개선이 필요한 영역 2개 제시
-4. 개인화된 발전 방향 제안
+**개인 평가 중점 사항:**
+1. 개인의 고유한 강점과 특성 파악
+2. 토론 참여 패턴과 소통 스타일 분석
+3. CJ 인재상 발현 정도를 세밀하게 평가 (0-100점)
+4. 개인별 성장 가능성과 발전 방향 제시
+5. 실무에 적용 가능한 구체적 조언
 
-**톤 및 스타일:**
-- 정중하고 격려적인 존댓말 사용
-- 건설적이고 구체적인 피드백
-- CJ 가치관과 연결된 조언
-- 한국 비즈니스 맥락에 적합한 표현
+**피드백 스타일:**
+- 개인의 특성을 인정하고 격려하는 톤
+- 강점을 부각시키면서 성장 영역 안내
+- CJ 가치와 연결된 실무 적용 가이드
+- 한국적 비즈니스 예의를 갖춘 정중한 표현
 
 응답 형식은 반드시 다음 JSON 형태로만 제공하세요:
 {
@@ -60,16 +61,16 @@ class DiscussionEvaluator:
     "창의": 점수,
     "존중": 점수
   },
-  "participation_summary": "발언패턴과 참여도 요약 (2-3문장)",
-  "strengths": ["강점1", "강점2", "강점3"],
-  "improvements": ["개선점1", "개선점2"],
-  "personalized_feedback": "개인화된 총평 및 발전방향 제안 (4-5문장)",
-  "top_messages": ["가장 인상적인 발언 1-2개"]
+  "participation_summary": "개인의 토론 참여 스타일과 특징 (3-4문장)",
+  "strengths": ["개인 고유 강점1", "개인 고유 강점2", "개인 고유 강점3"],
+  "improvements": ["개인 맞춤 개선점1", "개인 맞춤 개선점2"],
+  "personalized_feedback": "개인별 맞춤 총평과 성장 방향 (5-6문장)",
+  "top_messages": ["가장 인상적이고 특징적인 발언 1-2개"]
 }"""
 
     def evaluate_user(self, user_id: str, user_messages: List[Dict], discussion_context: Optional[Dict] = None) -> Dict:
         """
-        사용자의 토론 참여 내용을 종합하여 총평 생성
+        개별 사용자의 토론 참여를 종합 분석하여 개인 맞춤형 총평 생성
         
         Args:
             user_id: 사용자 ID
@@ -77,22 +78,22 @@ class DiscussionEvaluator:
             discussion_context: 토론 맥락 정보 (주제, 시간 등)
             
         Returns:
-            총평 결과 딕셔너리
+            개인 맞춤형 총평 결과 딕셔너리
         """
         if not user_messages or len(user_messages) == 0:
             return self._create_no_participation_feedback(user_id)
 
-        # GPT 기반 총평 생성 시도
+        # GPT 기반 개인 맞춤 총평 생성 시도
         if self.gpt_enabled:
-            gpt_result = self._generate_gpt_evaluation(user_id, user_messages, discussion_context)
+            gpt_result = self._generate_personal_evaluation(user_id, user_messages, discussion_context)
             if gpt_result:
                 return gpt_result
 
-        # GPT 실패시 기본 총평으로 백업
-        return self._generate_fallback_evaluation(user_id, user_messages)
+        # GPT 실패시 기본 개인 총평으로 백업
+        return self._generate_personal_fallback(user_id, user_messages)
 
-    def _generate_gpt_evaluation(self, user_id: str, user_messages: List[Dict], discussion_context: Optional[Dict] = None) -> Optional[Dict]:
-        """GPT를 사용한 종합 총평 생성"""
+    def _generate_personal_evaluation(self, user_id: str, user_messages: List[Dict], discussion_context: Optional[Dict] = None) -> Optional[Dict]:
+        """GPT를 사용한 개인 맞춤형 총평 생성"""
         try:
             # 사용자 발언 데이터 구성
             messages_text = []
@@ -126,16 +127,17 @@ class DiscussionEvaluator:
 
             user_prompt = f"""{context_info}
 
-평가 대상자: {user_id}
+개인 평가 대상: {user_id}님
 총 발언 수: {len(user_messages)}개
 
-**전체 발언 내역:**
+**개인 발언 전체 내역:**
 {chr(10).join(messages_text)}
 
-**발언별 CJ 인재상 분석 결과:**
+**개인별 CJ 인재상 발현 분석:**
 {classification_summary}
 
-위 내용을 종합하여 이 참여자에 대한 상세한 총평을 작성해주세요."""
+위 내용을 토대로 {user_id}님만의 고유한 특성과 강점을 파악하여 개인 맞춤형 총평을 작성해주세요.
+특히 이 분의 토론 스타일, 소통 방식, CJ 인재상 발현 패턴을 중심으로 개인화된 피드백을 제공해주세요."""
 
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -154,17 +156,17 @@ class DiscussionEvaluator:
             result["user_id"] = user_id
             result["evaluation_date"] = datetime.now().isoformat()
             result["message_count"] = len(user_messages)
-            result["evaluation_method"] = "GPT 기반 종합 평가"
+            result["evaluation_method"] = "GPT 기반 개인 맞춤 평가"
 
-            print(f"[GPT 총평] {user_id}: 종합 점수 {result.get('overall_score', 'N/A')}")
+            print(f"[GPT 개인총평] {user_id}: 종합 점수 {result.get('overall_score', 'N/A')}")
             return result
 
         except Exception as e:
-            print(f"GPT 총평 생성 오류: {e}")
+            print(f"GPT 개인 총평 생성 오류: {e}")
             return None
 
     def _summarize_classifications(self, classifications: List[Dict]) -> str:
-        """발언별 분류 결과를 요약"""
+        """개인별 발언 분류 결과를 요약"""
         trait_counts = {"정직": 0, "열정": 0, "창의": 0, "존중": 0}
         high_score_messages = []
 
@@ -176,16 +178,16 @@ class DiscussionEvaluator:
             if max_score >= 50:
                 high_score_messages.append(f"- {cls['text'][:50]}... ({cls['primary_trait']}: {max_score}점)")
 
-        summary = "주요 인재상 분포: "
+        summary = "개인 인재상 발현 패턴: "
         summary += ", ".join([f"{trait} {count}회" for trait, count in trait_counts.items() if count > 0])
         
         if high_score_messages:
-            summary += f"\n\n우수 발언 예시:\n" + "\n".join(high_score_messages[:3])
+            summary += f"\n\n특징적 발언 예시:\n" + "\n".join(high_score_messages[:3])
         
         return summary
 
-    def _generate_fallback_evaluation(self, user_id: str, user_messages: List[Dict]) -> Dict:
-        """GPT 실패시 기본 총평 생성"""
+    def _generate_personal_fallback(self, user_id: str, user_messages: List[Dict]) -> Dict:
+        """GPT 실패시 기본 개인 총평 생성"""
         # 기존 분류기로 각 발언 분석
         classifications = []
         for msg in user_messages:
@@ -205,21 +207,21 @@ class DiscussionEvaluator:
             "user_id": user_id,
             "overall_score": overall_score,
             "cj_trait_scores": avg_scores,
-            "participation_summary": f"총 {len(user_messages)}회 발언하시며 적극적으로 참여해주셨습니다. '{top_trait}' 특성이 가장 두드러지게 나타났습니다.",
+            "participation_summary": f"{user_id}님은 총 {len(user_messages)}회의 발언을 통해 적극적으로 토론에 참여해주셨습니다. 특히 '{top_trait}' 인재상이 두드러지게 발현되어 개인만의 특징적인 소통 스타일을 보여주셨습니다.",
             "strengths": [
-                f"{top_trait} 인재상이 잘 발현됨",
-                "꾸준한 토론 참여",
-                "성실한 의견 개진"
+                f"개인 고유의 {top_trait} 특성 발현",
+                f"{user_id}님만의 독특한 관점과 접근",
+                "일관된 토론 참여 의지"
             ],
             "improvements": [
-                "다양한 CJ 인재상의 균형적 발전",
-                "더욱 구체적인 의견 제시"
+                f"{user_id}님의 강점인 {top_trait}을 더욱 발전시키기",
+                "다른 CJ 인재상과의 균형적 통합"
             ],
-            "personalized_feedback": f"{user_id}님은 '{top_trait}' 영역에서 특히 우수한 모습을 보여주셨습니다. 앞으로도 CJ의 핵심 가치를 실천하며 더욱 성장하시길 기대합니다.",
+            "personalized_feedback": f"{user_id}님은 '{top_trait}' 영역에서 개인만의 독특한 강점을 보여주셨습니다. 이는 {user_id}님의 고유한 특성으로, 앞으로 이 강점을 더욱 발전시키면서 다른 인재상들과 조화롭게 통합해나가시면 CJ의 핵심 인재로 더욱 성장하실 것으로 기대됩니다.",
             "top_messages": [msg["text"] for msg in user_messages[:2]],
             "evaluation_date": datetime.now().isoformat(),
             "message_count": len(user_messages),
-            "evaluation_method": "룰 기반 기본 평가"
+            "evaluation_method": "룰 기반 개인 맞춤 평가"
         }
 
     def _create_no_participation_feedback(self, user_id: str) -> Dict:
@@ -234,72 +236,48 @@ class DiscussionEvaluator:
                 "적극적인 토론 참여",
                 "의견 표현 및 소통 활성화"
             ],
-            "personalized_feedback": f"{user_id}님, 다음 토론에서는 더욱 적극적으로 참여하여 CJ 인재상을 발휘해보시기 바랍니다. 여러분의 소중한 의견을 기다리고 있습니다.",
+            "personalized_feedback": f"{user_id}님, 이번에는 토론 참여 기회를 놓치셨지만, 다음 토론에서는 {user_id}님만의 고유한 관점과 CJ 인재상을 마음껏 발휘해보시기 바랍니다. {user_id}님의 개성 있는 의견과 참여를 기대하고 있습니다.",
             "top_messages": [],
             "evaluation_date": datetime.now().isoformat(),
             "message_count": 0,
-            "evaluation_method": "미참여자 기본 안내"
+            "evaluation_method": "미참여자 개인 맞춤 안내"
         }
 
-    def evaluate_multiple_users(self, participants_data: Dict[str, List[Dict]], discussion_context: Optional[Dict] = None) -> Dict:
+    def get_evaluation_summary(self, user_id: str, user_messages: List[Dict], discussion_context: Optional[Dict] = None) -> str:
         """
-        여러 사용자의 토론 참여 내용을 일괄 평가
+        개인 총평의 간단한 요약 텍스트 반환 (외부 시스템 연동용)
         
         Args:
-            participants_data: {user_id: [messages...], ...} 형태의 참여자 데이터
+            user_id: 사용자 ID
+            user_messages: 사용자 발언 리스트
             discussion_context: 토론 맥락 정보
             
         Returns:
-            전체 참여자 총평 결과
+            개인 총평 요약 텍스트
         """
-        evaluations = {}
+        evaluation = self.evaluate_user(user_id, user_messages, discussion_context)
         
-        for user_id, messages in participants_data.items():
-            print(f"\n{user_id} 총평 생성 중...")
-            evaluations[user_id] = self.evaluate_user(user_id, messages, discussion_context)
-        
-        # 전체 통계 생성
-        overall_stats = self._generate_overall_stats(evaluations)
-        
-        return {
-            "discussion_context": discussion_context,
-            "individual_evaluations": evaluations,
-            "overall_stats": overall_stats,
-            "evaluation_date": datetime.now().isoformat()
-        }
+        summary_text = f"""
+🎯 {user_id}님 개인 토론 총평
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    def _generate_overall_stats(self, evaluations: Dict) -> Dict:
-        """전체 참여자 통계 생성"""
-        if not evaluations:
-            return {}
+💯 종합 점수: {evaluation['overall_score']}점
+📊 CJ 인재상 점수: 정직 {evaluation['cj_trait_scores']['정직']}점 | 열정 {evaluation['cj_trait_scores']['열정']}점 | 창의 {evaluation['cj_trait_scores']['창의']}점 | 존중 {evaluation['cj_trait_scores']['존중']}점
 
-        total_participants = len(evaluations)
-        active_participants = len([e for e in evaluations.values() if e["message_count"] > 0])
-        
-        # 평균 점수 계산
-        all_scores = [e["overall_score"] for e in evaluations.values() if e["overall_score"] > 0]
-        avg_score = round(sum(all_scores) / len(all_scores)) if all_scores else 0
-        
-        # 상위 참여자 찾기
-        sorted_participants = sorted(
-            [(uid, eval_data) for uid, eval_data in evaluations.items()],
-            key=lambda x: x[1]["overall_score"],
-            reverse=True
-        )
-        
-        top_performers = []
-        for user_id, eval_data in sorted_participants[:3]:
-            if eval_data["overall_score"] > 0:
-                top_performers.append({
-                    "user_id": user_id,
-                    "score": eval_data["overall_score"],
-                    "top_trait": max(eval_data["cj_trait_scores"], key=eval_data["cj_trait_scores"].get)
-                })
+📝 참여 요약:
+{evaluation['participation_summary']}
 
-        return {
-            "total_participants": total_participants,
-            "active_participants": active_participants,
-            "average_score": avg_score,
-            "top_performers": top_performers,
-            "participation_rate": round(active_participants / total_participants * 100, 1) if total_participants > 0 else 0
-        }
+✨ 개인 강점:
+{chr(10).join([f'• {strength}' for strength in evaluation['strengths']])}
+
+🔄 발전 영역:
+{chr(10).join([f'• {improvement}' for improvement in evaluation['improvements']])}
+
+💬 맞춤형 피드백:
+{evaluation['personalized_feedback']}
+
+📅 평가일: {evaluation['evaluation_date'][:10]}
+🔧 평가방식: {evaluation['evaluation_method']}
+        """
+        
+        return summary_text.strip()
