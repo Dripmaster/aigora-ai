@@ -72,6 +72,23 @@ class EvaluationResponse(BaseModel):
     message_count: int
     evaluation_method: str
 
+class DiscussionOverallRequest(BaseModel):
+    all_user_messages: List[Dict]
+    discussion_context: Optional[Dict] = None
+
+class DiscussionOverallResponse(BaseModel):
+    overall_quality_score: int
+    participation_rate: int
+    discussion_summary: str
+    key_insights: List[str]
+    top_contributions: List[str]
+    cj_values_reflection: str
+    recommendations: List[str]
+    total_participants: int
+    total_messages: int
+    evaluation_date: str
+    evaluation_method: str
+
 @app.get("/")
 async def root():
     return {
@@ -82,7 +99,8 @@ async def root():
             "/question": "토론 참여 유도 질문 생성",
             "/classify": "메시지 CJ 인재상 분류",
             "/profile": "사용자 종합 프로필 생성",
-            "/evaluate": "개인 맞춤형 토론 총평 생성"
+            "/evaluate": "개인 맞춤형 토론 총평 생성",
+            "/discussion-overall": "전체 토론 AI 총평 생성"
         }
     }
 
@@ -196,6 +214,27 @@ async def evaluate_user(request: EvaluationRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"총평 생성 중 오류 발생: {str(e)}")
+
+@app.post("/discussion-overall", response_model=DiscussionOverallResponse)
+async def discussion_overall(request: DiscussionOverallRequest):
+    """전체 토론 참여자들의 토론 AI 총평 생성"""
+    try:
+        # 입력 검증
+        if not request.all_user_messages or len(request.all_user_messages) == 0:
+            raise HTTPException(status_code=400, detail="분석할 토론 메시지가 없습니다")
+        
+        # 전체 토론 AI 총평 생성
+        evaluation_result = discussion_evaluator.evaluate_discussion_overall(
+            request.all_user_messages,
+            request.discussion_context
+        )
+        
+        return DiscussionOverallResponse(**evaluation_result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"토론 총평 생성 중 오류 발생: {str(e)}")
 
 @app.get("/form", response_class=HTMLResponse)
 async def form_page():
