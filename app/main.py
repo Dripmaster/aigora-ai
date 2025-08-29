@@ -88,6 +88,13 @@ async def root():
 
 @app.post("/question", response_model = QuestionResponse)
 async def question(request: QuestionRequest):
+    # 300초 이상 미발언한 경우에만 질문 생성
+    if request.idle_time < 300:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"사용자가 {request.idle_time}초간 미발언하였습니다. 300초 이상 미발언해야 질문이 생성됩니다."
+        )
+    
     # 질문 생성 컨텍스트 구성
     context = {
         "current_topic": "CJ 인재상 실천",
