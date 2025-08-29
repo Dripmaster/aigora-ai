@@ -77,13 +77,7 @@ class DiscussionOverallRequest(BaseModel):
     discussion_context: Optional[Dict] = None
 
 class DiscussionOverallResponse(BaseModel):
-    overall_quality_score: int
-    participation_rate: int
     discussion_summary: str
-    key_insights: List[str]
-    top_contributions: List[str]
-    cj_values_reflection: str
-    recommendations: List[str]
     total_participants: int
     total_messages: int
     evaluation_date: str
@@ -203,7 +197,7 @@ async def evaluate_user(request: EvaluationRequest):
             raise HTTPException(status_code=400, detail="분석할 메시지가 없습니다")
                  
         # 개인 맞춤형 토론 총평 생성
-        evaluation_result = personal_evaluator.evaluate_user(
+        evaluation_result = discussion_evaluator.evaluate_user(
                      request.user_id,
                      request.user_messages,
                   request.discussion_context

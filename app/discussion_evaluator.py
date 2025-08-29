@@ -335,39 +335,34 @@ class PersonalEvaluator:
             for user_id, messages in user_participation.items():
                 participation_summary.append(f"{user_id}: {len(messages)}회")
 
-            # 전체 토론 내용 구성 (최근 20개 발언만)
-            recent_messages = all_user_messages[-20:] if len(all_user_messages) > 20 else all_user_messages
+            # 전체 토론 내용 구성 (모든 발언 포함)
             discussion_content = []
-            for msg in recent_messages:
+            for msg in all_user_messages:
                 user_id = msg.get("user_id", "익명")
                 text = msg.get("text", "")
                 discussion_content.append(f"- {user_id}: {text}")
 
-            discussion_overall_prompt = """당신은 CJ 식음 서비스 매니저 교육 프로그램의 전문 토론 평가자입니다.
+            discussion_overall_prompt = """당신은 CJ 식음 서비스 매니저 교육 프로그램의 전문 강사입니다.
 
-전체 토론 참여자들의 발언을 종합 분석하여 토론 전체에 대한 AI 총평을 작성해주세요:
+참여자들이 읽을 토론 총평을 작성해주세요:
 
-**토론 전체 평가 기준:**
-- 참여도: 전체 참여율과 적극성 분석
-- 토론 품질: 발언의 깊이와 CJ 인재상 발현도
-- 상호작용: 참여자 간 소통과 협력 정도
-- 균형도: 다양한 관점과 의견 표현 정도
+**총평 작성 가이드:**
+- 참여자들을 격려하고 칭찬하는 따뜻한 톤
+- CJ 인재상 발현에 대한 구체적인 인정과 평가
+- 토론에서 나온 좋은 의견들과 인사이트 언급
+- 교육적 가치와 실무 적용 가능성 강조
+- 한국적 비즈니스 예의를 갖춘 정중하고 친근한 표현
 
-**AI 총평 중점 사항:**
-1. 전체적인 토론 분위기와 참여 양상
-2. 주요 인사이트와 우수 발언들
-3. CJ 인재상 발현 패턴 분석
-4. 토론의 교육적 성과와 개선점
+**총평 구성:**
+1. 전체적인 참여에 대한 감사와 격려
+2. 토론에서 나타난 우수한 점들 구체적 언급
+3. CJ 인재상 발현에 대한 긍정적 평가
+4. 토론의 교육적 성과와 의미
+5. 향후 실무 적용에 대한 기대와 응원
 
 응답 형식은 반드시 다음 JSON 형태로만 제공하세요:
 {
-  "overall_quality_score": 전체품질점수,
-  "participation_rate": 참여율점수,
-  "discussion_summary": "토론 전체 요약 및 특징 (4-5문장)",
-  "key_insights": ["주요 인사이트1", "주요 인사이트2", "주요 인사이트3"],
-  "top_contributions": ["우수 발언이나 기여 1-2개"],
-  "cj_values_reflection": "CJ 인재상 발현 정도 분석 (3-4문장)",
-  "recommendations": ["토론 개선점1", "토론 개선점2"]
+  "discussion_summary": "참여자들을 위한 따뜻하고 격려하는 토론 총평 (8-10문장)"
 }"""
 
             user_prompt = f"""{context_info}
@@ -380,8 +375,8 @@ class PersonalEvaluator:
 **토론 주요 내용:**
 {chr(10).join(discussion_content)}
 
-위 토론 내용을 종합하여 전체 토론에 대한 AI 총평을 작성해주세요.
-특히 참여자들의 CJ 인재상 발현과 토론의 교육적 가치를 중심으로 평가해주세요."""
+위 토론 내용을 바탕으로 참여자들이 읽을 따뜻하고 격려적인 총평을 작성해주세요.
+참여해주신 모든 분들에게 감사를 표하고, CJ 인재상 발현에 대해 구체적으로 칭찬하며, 앞으로의 실무 적용에 대한 기대와 응원 메시지를 포함해주세요."""
 
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -402,7 +397,7 @@ class PersonalEvaluator:
             result["evaluation_date"] = datetime.now().isoformat()
             result["evaluation_method"] = "GPT 기반 토론 전체 평가"
 
-            print(f"[GPT 토론총평] 참여자 {total_users}명, 발언 {total_messages}개: 품질점수 {result.get('overall_quality_score', 'N/A')}")
+            print(f"[GPT 토론총평] 참여자 {total_users}명, 발언 {total_messages}개 분석 완료")
             return result
 
         except Exception as e:
@@ -428,20 +423,7 @@ class PersonalEvaluator:
         active_users = [user for user, count in user_participation.items() if count >= avg_messages_per_user]
         
         return {
-            "overall_quality_score": min(85, 60 + (total_messages * 2)),  # 발언 수에 따른 기본 점수
-            "participation_rate": min(90, 50 + (total_users * 10)),  # 참여자 수에 따른 점수
-            "discussion_summary": f"총 {total_users}명이 참여하여 {total_messages}개의 발언으로 활발한 토론이 진행되었습니다. 참여자 평균 {avg_messages_per_user}회 발언으로 적극적인 참여를 보여주었으며, 다양한 관점에서 CJ 인재상에 대한 깊이 있는 논의가 이루어졌습니다.",
-            "key_insights": [
-                f"{len(active_users)}명의 참여자가 특히 활발한 기여를 보임",
-                f"전체적으로 균형잡힌 {total_messages}개 발언으로 구성",
-                "다양한 CJ 인재상 관점에서 접근한 토론"
-            ],
-            "top_contributions": [msg.get("text", "")[:100] + "..." for msg in all_user_messages[:2]],
-            "cj_values_reflection": f"참여자들이 CJ의 핵심 가치인 정직, 열정, 창의, 존중을 바탕으로 한 발언들을 통해 실무 현장에서의 적용 방안에 대해 진지하게 고민하는 모습을 보여주었습니다. 전체적으로 CJ 인재상에 대한 이해도가 높은 토론이었습니다.",
-            "recommendations": [
-                "더 많은 참여자들의 적극적인 발언 유도 필요",
-                "구체적인 실무 사례를 통한 심화 토론 권장"
-            ],
+            "discussion_summary": f"오늘 토론에 참여해주신 {total_users}명의 매니저님들께 진심으로 감사드립니다. 총 {total_messages}개의 소중한 의견을 나누어주시며 정말 의미 있는 시간을 만들어주셨습니다. 참여자 평균 {avg_messages_per_user}회의 적극적인 발언을 통해 CJ 인재상에 대한 깊이 있는 이해와 현장 적용에 대한 진지한 고민을 보여주셨습니다. 특히 {len(active_users)}분께서 활발한 기여를 해주신 덕분에 균형잡힌 토론이 이루어질 수 있었습니다. 여러분께서 보여주신 정직한 소통, 열정적인 참여, 창의적인 아이디어, 그리고 서로에 대한 존중하는 마음이 정말 인상 깊었습니다. 이번 토론을 통해 나눈 경험과 인사이트들이 실제 현장에서 CJ 인재상을 실천하는 데 큰 도움이 될 것이라 확신합니다. 앞으로도 계속해서 이런 열정과 관심으로 성장해나가시길 응원하겠습니다.",
             "total_participants": total_users,
             "total_messages": total_messages,
             "evaluation_date": datetime.now().isoformat(),
@@ -451,16 +433,7 @@ class PersonalEvaluator:
     def _create_no_discussion_feedback(self) -> Dict:
         """토론 참여가 없는 경우 피드백"""
         return {
-            "overall_quality_score": 0,
-            "participation_rate": 0,
-            "discussion_summary": "이번 토론에는 참여자나 발언이 없었습니다.",
-            "key_insights": ["토론 미진행"],
-            "top_contributions": [],
-            "cj_values_reflection": "토론이 진행되지 않아 CJ 인재상 발현을 평가할 수 없습니다.",
-            "recommendations": [
-                "참여자 유도를 위한 적극적인 안내 필요",
-                "토론 주제나 방식 재검토 권장"
-            ],
+            "discussion_summary": "안녕하세요, 매니저님들. 이번 토론 시간에는 아쉽게도 참여해주신 분들이 없었습니다. 하지만 괜찮습니다. 다음 토론에서는 여러분의 소중한 의견과 경험을 나눠주시기를 기대하겠습니다. CJ 인재상에 대한 여러분만의 생각과 현장에서의 실천 경험을 들려주시면 모두에게 큰 도움이 될 것입니다. 언제든 편안하게 참여해주세요.",
             "total_participants": 0,
             "total_messages": 0,
             "evaluation_date": datetime.now().isoformat(),
