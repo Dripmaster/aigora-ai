@@ -281,3 +281,188 @@ class PersonalEvaluator:
         """
         
         return summary_text.strip()
+
+    def evaluate_discussion_overall(self, all_user_messages: List[Dict], discussion_context: Optional[Dict] = None) -> Dict:
+        """
+        전체 사용자들의 토론 참여를 종합 분석하여 AI 총평 생성
+        
+        Args:
+            all_user_messages: 모든 사용자의 발언 리스트 [{"user_id": "...", "text": "...", "timestamp": "..."}, ...]
+            discussion_context: 토론 맥락 정보 (주제, 시간 등)
+            
+        Returns:
+            전체 토론 AI 총평 결과 딕셔너리
+        """
+        if not all_user_messages or len(all_user_messages) == 0:
+            return self._create_no_discussion_feedback()
+
+        # GPT 기반 전체 토론 총평 생성 시도
+        if self.gpt_enabled:
+            gpt_result = self._generate_discussion_overall_evaluation(all_user_messages, discussion_context)
+            if gpt_result:
+                return gpt_result
+
+        # GPT 실패시 기본 전체 총평으로 백업
+        return self._generate_discussion_overall_fallback(all_user_messages)
+
+    def _generate_discussion_overall_evaluation(self, all_user_messages: List[Dict], discussion_context: Optional[Dict] = None) -> Optional[Dict]:
+        """GPT를 사용한 전체 토론 AI 총평 생성"""
+        try:
+            # 참여자별 발언 분석
+            user_participation = {}
+            for msg in all_user_messages:
+                user_id = msg.get("user_id", "익명")
+                if user_id not in user_participation:
+                    user_participation[user_id] = []
+                user_participation[user_id].append(msg)
+
+            # 토론 맥락 정보 구성
+            context_info = ""
+            if discussion_context:
+                if discussion_context.get("topic"):
+                    context_info += f"토론 주제: {discussion_context['topic']}\n"
+                if discussion_context.get("duration"):
+                    context_info += f"토론 시간: {discussion_context['duration']}분\n"
+                if discussion_context.get("round_number"):
+                    context_info += f"토론 회차: {discussion_context['round_number']}차\n"
+
+            # 전체 발언 요약
+            total_messages = len(all_user_messages)
+            total_users = len(user_participation)
+            
+            # 참여자별 발언 수
+            participation_summary = []
+            for user_id, messages in user_participation.items():
+                participation_summary.append(f"{user_id}: {len(messages)}회")
+
+            # 전체 토론 내용 구성 (최근 20개 발언만)
+            recent_messages = all_user_messages[-20:] if len(all_user_messages) > 20 else all_user_messages
+            discussion_content = []
+            for msg in recent_messages:
+                user_id = msg.get("user_id", "익명")
+                text = msg.get("text", "")
+                discussion_content.append(f"- {user_id}: {text}")
+
+            discussion_overall_prompt = """당신은 CJ 식음 서비스 매니저 교육 프로그램의 전문 토론 평가자입니다.
+
+전체 토론 참여자들의 발언을 종합 분석하여 토론 전체에 대한 AI 총평을 작성해주세요:
+
+**토론 전체 평가 기준:**
+- 참여도: 전체 참여율과 적극성 분석
+- 토론 품질: 발언의 깊이와 CJ 인재상 발현도
+- 상호작용: 참여자 간 소통과 협력 정도
+- 균형도: 다양한 관점과 의견 표현 정도
+
+**AI 총평 중점 사항:**
+1. 전체적인 토론 분위기와 참여 양상
+2. 주요 인사이트와 우수 발언들
+3. CJ 인재상 발현 패턴 분석
+4. 토론의 교육적 성과와 개선점
+
+응답 형식은 반드시 다음 JSON 형태로만 제공하세요:
+{
+  "overall_quality_score": 전체품질점수,
+  "participation_rate": 참여율점수,
+  "discussion_summary": "토론 전체 요약 및 특징 (4-5문장)",
+  "key_insights": ["주요 인사이트1", "주요 인사이트2", "주요 인사이트3"],
+  "top_contributions": ["우수 발언이나 기여 1-2개"],
+  "cj_values_reflection": "CJ 인재상 발현 정도 분석 (3-4문장)",
+  "recommendations": ["토론 개선점1", "토론 개선점2"]
+}"""
+
+            user_prompt = f"""{context_info}
+
+**토론 참여 현황:**
+총 참여자: {total_users}명
+총 발언 수: {total_messages}개
+참여자별 발언: {', '.join(participation_summary)}
+
+**토론 주요 내용:**
+{chr(10).join(discussion_content)}
+
+위 토론 내용을 종합하여 전체 토론에 대한 AI 총평을 작성해주세요.
+특히 참여자들의 CJ 인재상 발현과 토론의 교육적 가치를 중심으로 평가해주세요."""
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": discussion_overall_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=800,
+                response_format={"type": "json_object"}
+            )
+
+            result = json.loads(response.choices[0].message.content)
+            
+            # 결과에 메타데이터 추가
+            result["total_participants"] = total_users
+            result["total_messages"] = total_messages
+            result["evaluation_date"] = datetime.now().isoformat()
+            result["evaluation_method"] = "GPT 기반 토론 전체 평가"
+
+            print(f"[GPT 토론총평] 참여자 {total_users}명, 발언 {total_messages}개: 품질점수 {result.get('overall_quality_score', 'N/A')}")
+            return result
+
+        except Exception as e:
+            print(f"GPT 토론 전체 총평 생성 오류: {e}")
+            return None
+
+    def _generate_discussion_overall_fallback(self, all_user_messages: List[Dict]) -> Dict:
+        """GPT 실패시 기본 토론 전체 총평 생성"""
+        # 참여자별 분석
+        user_participation = {}
+        total_messages = len(all_user_messages)
+        
+        for msg in all_user_messages:
+            user_id = msg.get("user_id", "익명")
+            if user_id not in user_participation:
+                user_participation[user_id] = 0
+            user_participation[user_id] += 1
+
+        total_users = len(user_participation)
+        avg_messages_per_user = round(total_messages / total_users) if total_users > 0 else 0
+        
+        # 활발한 참여자 파악
+        active_users = [user for user, count in user_participation.items() if count >= avg_messages_per_user]
+        
+        return {
+            "overall_quality_score": min(85, 60 + (total_messages * 2)),  # 발언 수에 따른 기본 점수
+            "participation_rate": min(90, 50 + (total_users * 10)),  # 참여자 수에 따른 점수
+            "discussion_summary": f"총 {total_users}명이 참여하여 {total_messages}개의 발언으로 활발한 토론이 진행되었습니다. 참여자 평균 {avg_messages_per_user}회 발언으로 적극적인 참여를 보여주었으며, 다양한 관점에서 CJ 인재상에 대한 깊이 있는 논의가 이루어졌습니다.",
+            "key_insights": [
+                f"{len(active_users)}명의 참여자가 특히 활발한 기여를 보임",
+                f"전체적으로 균형잡힌 {total_messages}개 발언으로 구성",
+                "다양한 CJ 인재상 관점에서 접근한 토론"
+            ],
+            "top_contributions": [msg.get("text", "")[:100] + "..." for msg in all_user_messages[:2]],
+            "cj_values_reflection": f"참여자들이 CJ의 핵심 가치인 정직, 열정, 창의, 존중을 바탕으로 한 발언들을 통해 실무 현장에서의 적용 방안에 대해 진지하게 고민하는 모습을 보여주었습니다. 전체적으로 CJ 인재상에 대한 이해도가 높은 토론이었습니다.",
+            "recommendations": [
+                "더 많은 참여자들의 적극적인 발언 유도 필요",
+                "구체적인 실무 사례를 통한 심화 토론 권장"
+            ],
+            "total_participants": total_users,
+            "total_messages": total_messages,
+            "evaluation_date": datetime.now().isoformat(),
+            "evaluation_method": "룰 기반 토론 전체 평가"
+        }
+
+    def _create_no_discussion_feedback(self) -> Dict:
+        """토론 참여가 없는 경우 피드백"""
+        return {
+            "overall_quality_score": 0,
+            "participation_rate": 0,
+            "discussion_summary": "이번 토론에는 참여자나 발언이 없었습니다.",
+            "key_insights": ["토론 미진행"],
+            "top_contributions": [],
+            "cj_values_reflection": "토론이 진행되지 않아 CJ 인재상 발현을 평가할 수 없습니다.",
+            "recommendations": [
+                "참여자 유도를 위한 적극적인 안내 필요",
+                "토론 주제나 방식 재검토 권장"
+            ],
+            "total_participants": 0,
+            "total_messages": 0,
+            "evaluation_date": datetime.now().isoformat(),
+            "evaluation_method": "미진행 토론 기본 안내"
+        }
