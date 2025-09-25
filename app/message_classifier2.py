@@ -22,7 +22,7 @@ class MessageClassifier2:
     
     def __init__(self, 
                  similarity_threshold=0.15,
-                 multi_trait_threshold=0.9,    # 최고점의 80% 이상
+                 multi_trait_threshold=0.8,    # 최고점의 80% 이상
                  min_trait_score=60,           # 최소 60점 이상  
                  max_traits=3,                # 최대 3개까지
                  confidence_threshold=0.25):    # 신뢰도 임계값
@@ -204,7 +204,7 @@ class MessageClassifier2:
         # 2위가 있고 1위와 점수 차이가 20점 이하면 포함
         if len(sorted_traits) > 1:
             second_trait, second_score = sorted_traits[1]
-            if second_score > 0 and (first_score - second_score) <= 20:
+            if second_score > 0 and (first_score - second_score) <= 10:
                 selected_traits.append(second_trait)
                 trait_details[second_trait] = {"score": second_score, "confidence": second_score / 100.0}
         
