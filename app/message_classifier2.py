@@ -21,15 +21,17 @@ class MessageClassifier2:
     """간소화된 Sum 방식 CJ 인재상 분류기 (다중 인재상 지원)"""
     
     def __init__(self, 
-                 similarity_threshold=0.1,
-                 multi_trait_threshold=0.8,    # 최고점의 80% 이상
+                 similarity_threshold=0.15,
+                 multi_trait_threshold=0.9,    # 최고점의 80% 이상
                  min_trait_score=60,           # 최소 60점 이상  
-                 max_traits=3):                # 최대 3개까지
+                 max_traits=3,                # 최대 3개까지
+                 confidence_threshold=0.25):    # 신뢰도 임계값
         """분류기 초기화"""
         self.similarity_threshold = similarity_threshold
         self.multi_trait_threshold = multi_trait_threshold
         self.min_trait_score = min_trait_score
         self.max_traits = max_traits
+        self.confidence_threshold = confidence_threshold
         self.logger = logging.getLogger(__name__)
         
         # KoNLPy 초기화
@@ -77,6 +79,7 @@ class MessageClassifier2:
         self.logger.info(f"형태소 분석: {'활성화' if self.morphs_enabled else '비활성화'}")
         self.logger.info(f"Word2Vec: {'로드됨' if self.word2vec_model else '로드 실패'}") 
         self.logger.info(f"다중 분류 설정: 임계값={multi_trait_threshold}, 최소점수={min_trait_score}, 최대개수={max_traits}")
+        self.logger.info(f"신뢰도 임계값: {confidence_threshold}")
     
     def _load_word2vec_model(self):
         """Word2Vec 모델 로드 (간소화)"""
@@ -263,6 +266,18 @@ class MessageClassifier2:
                 primary_trait = selected_traits[0]
                 confidence = normalized_scores[primary_trait] / 100.0
                 
+                # 신뢰도 임계값 검사
+                if confidence < self.confidence_threshold:
+                    return {
+                        "cj_values": {"정직": 0, "열정": 0, "창의": 0, "존중": 0},
+                        "primary_trait": "분류하지않음",
+                        "multiple_traits": [],
+                        "summary": f"신뢰도 부족으로 분류 실패 (신뢰도: {confidence:.3f})",
+                        "method": "low_confidence",
+                        "confidence": confidence,
+                        "morphemes": morphemes
+                    }
+                
                 return {
                     "cj_values": normalized_scores,
                     "primary_trait": primary_trait,
@@ -289,6 +304,18 @@ class MessageClassifier2:
                 if selected_traits:
                     primary_trait = selected_traits[0]
                     confidence = min(1.0, max_similarity / len(morphemes))
+                    
+                    # 신뢰도 임계값 검사
+                    if confidence < self.confidence_threshold:
+                        return {
+                            "cj_values": {"정직": 0, "열정": 0, "창의": 0, "존중": 0},
+                            "primary_trait": "분류하지않음",
+                            "multiple_traits": [],
+                            "summary": f"신뢰도 부족으로 분류 실패 (신뢰도: {confidence:.3f})",
+                            "method": "low_confidence",
+                            "confidence": confidence,
+                            "morphemes": morphemes
+                        }
                     
                     return {
                         "cj_values": normalized_scores,
@@ -319,7 +346,7 @@ class MessageClassifier2:
         classifications = []
         method_counts = {
             "explicit_trait": 0, "keyword_matching": 0, "sum_similarity": 0,
-            "classification_failed": 0, "skip": 0, "analysis_failed": 0
+            "classification_failed": 0, "skip": 0, "analysis_failed": 0, "low_confidence": 0
         }
         
         for msg in messages:
@@ -361,6 +388,7 @@ class MessageClassifier2:
             "multi_trait_threshold": self.multi_trait_threshold,
             "min_trait_score": self.min_trait_score,
             "max_traits": self.max_traits,
+            "confidence_threshold": self.confidence_threshold,
             "morphs_enabled": self.morphs_enabled,
             "word2vec_loaded": self.word2vec_model is not None
         }
