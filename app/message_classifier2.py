@@ -212,17 +212,22 @@ class MessageClassifier2:
     
     def classify(self, text, user_id=""):
         """메시지 분류 메인 함수 - 다중 인재상 지원"""
-        # 빈 메시지 처리
-        if not text or len(text.strip()) < 2:
-            return {
-                "cj_values": {"정직": 0, "열정": 0, "창의": 0, "존중": 0},
-                "primary_trait": "무응답",
-                "multiple_traits": [],
-                "summary": "메시지가 너무 짧음",
-                "method": "skip",
-                "confidence": 0.0,
-                "morphemes": []
-            }
+        # 빈 메시지 및 짧은 메시지 처리 (CJ 인재상 키워드 예외)
+        if not text or len(text.strip()) < 5:
+            # CJ 인재상 키워드가 포함된 경우는 예외 처리
+            cj_traits = ["정직", "열정", "창의", "존중"]
+            has_cj_trait = any(trait in text for trait in cj_traits)
+            
+            if not has_cj_trait:
+                return {
+                    "cj_values": {"정직": 0, "열정": 0, "창의": 0, "존중": 0},
+                    "primary_trait": "무응답",
+                    "multiple_traits": [],
+                    "summary": "메시지가 너무 짧음 (5글자 미만)",
+                    "method": "skip",
+                    "confidence": 0.0,
+                    "morphemes": []
+                }
         
         # 명시적 인재상 키워드 검출
         text_lower = text.lower()
