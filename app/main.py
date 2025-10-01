@@ -6,32 +6,52 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
 from typing import Dict, Optional, List
-from app.question_generator import QuestionGenerator
+from app.question_generator2 import QuestionGenerator2
+from app.participant_monitor import ParticipantMonitor
 from app.message_classifier2 import MessageClassifier2
 from app.discussion_evaluator import PersonalEvaluator
 
 load_dotenv()
 
 app = FastAPI(
-    title="CJ AI API", 
-    version="1.0.0",
+    title="CJ AI API",
+    version="2.0.0",
     description="CJ 식음 서비스 매니저 교육용 AI API - 토론 참여 분석 및 질문 생성"
 )
 
 # 초기화
-question_generator = QuestionGenerator()
+question_generator2 = QuestionGenerator2()
+participant_monitor = ParticipantMonitor()
 message_classifier = MessageClassifier2()
 discussion_evaluator = PersonalEvaluator()
 
-class QuestionRequest(BaseModel):
-    user_id: str
-    nickname: str 
-    idle_time: int
-    
-class QuestionResponse(BaseModel):
+# QuestionGenerator2 교육 컨텐츠 로드
+educational_content_path = os.path.join(os.path.dirname(__file__), "..", "educational_content.json")
+if os.path.exists(educational_content_path):
+    question_generator2.load_educational_content(educational_content_path)
+else:
+    print(f"경고: educational_content.json 파일을 찾을 수 없습니다: {educational_content_path}")
+
+class Question2Request(BaseModel):
+    nickname: str
+    discussion_topic: str
+    video_id: str
+    chat_history: List[Dict]
+
+class Question2Response(BaseModel):
     question: str
     target_user: str
-   
+    video_id: str
+    discussion_topic: str
+
+class EncouragementRequest(BaseModel):
+    nickname: str
+    chat_history: List[Dict]
+
+class EncouragementResponse(BaseModel):
+    nickname: str
+    message: str
+
 class ClassifyRequest(BaseModel):
     text: str
     user_id: str
@@ -53,7 +73,7 @@ class ProfileResponse(BaseModel):
     avg_cj_values: Dict[str, int]
     top_traits: List[str]
     overall_summary: str
-    
+
 class EvaluationRequest(BaseModel):
     user_id: str
     user_messages: List[Dict]
@@ -87,10 +107,11 @@ class DiscussionOverallResponse(BaseModel):
 async def root():
     return {
         "message": "CJ AI API",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "description": "CJ 식음 서비스 매니저 교육용 AI API",
         "endpoints": {
-            "/question": "토론 참여 유도 질문 생성",
+            "/question": "토론 참여 유도 질문 생성 (교육 컨텐츠 기반)",
+            "/encouragement": "참여 독려 멘트 생성",
             "/classify": "메시지 CJ 인재상 분류",
             "/profile": "사용자 종합 프로필 생성",
             "/evaluate": "개인 맞춤형 토론 총평 생성",
@@ -98,32 +119,101 @@ async def root():
         }
     }
 
-@app.post("/question", response_model = QuestionResponse)
-async def question(request: QuestionRequest):
-    # 300초 이상 미발언한 경우에만 질문 생성
-    if request.idle_time < 300:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"사용자가 {request.idle_time}초간 미발언하였습니다. 300초 이상 미발언해야 질문이 생성됩니다."
+@app.post("/question", response_model=Question2Response)
+async def question(request: Question2Request):
+    """
+    교육 컨텐츠 기반 토론 참여 유도 질문 생성 (QuestionGenerator2)
+
+    입력:
+    - nickname: 질문 대상 참여자 닉네임
+    - discussion_topic: 현재 토론 주제
+    - video_id: 현재 토론 중인 영상 ID (예: "video_tous_1")
+    - chat_history: 실시간 채팅 내역 [{"nickname": "김매니저", "text": "..."}, ...]
+    """
+    try:
+        # 입력 검증
+        if not request.nickname:
+            raise HTTPException(status_code=400, detail="닉네임이 필요합니다")
+
+        if not request.video_id:
+            raise HTTPException(status_code=400, detail="영상 ID가 필요합니다")
+
+        # 영상 스크립트 가져오기
+        video_script = question_generator2.get_video_script(request.video_id)
+
+        if "찾을 수 없습니다" in video_script:
+            raise HTTPException(
+                status_code=404,
+                detail=f"영상 ID '{request.video_id}'를 찾을 수 없습니다"
+            )
+
+        # 슬라이드 내용 가져오기
+        slide_content = question_generator2.get_slide_content_text()
+
+        # 질문 생성
+        generated_question = question_generator2.generate_question(
+            nickname=request.nickname,
+            discussion_topic=request.discussion_topic,
+            video_script=video_script,
+            slide_content=slide_content,
+            chat_history=request.chat_history
         )
-    
-    # 질문 생성 컨텍스트 구성
-    context = {
-        "current_topic": "CJ 인재상 실천",
-        "use_gpt": True
-    }
-    
-    generated_question = question_generator.generate(
-        request.user_id, 
-        request.nickname, 
-        request.idle_time, 
-        context
-    )
-    
-    return QuestionResponse(
-        question=generated_question, 
-        target_user=request.nickname
-    )
+
+        return Question2Response(
+            question=generated_question,
+            target_user=request.nickname,
+            video_id=request.video_id,
+            discussion_topic=request.discussion_topic
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"질문 생성 중 오류 발생: {str(e)}"
+        )
+
+@app.post("/encouragement", response_model=EncouragementResponse)
+async def generate_encouragement(request: EncouragementRequest):
+    """
+    참여 독려 멘트 생성
+
+    입력:
+    - nickname: 독려 대상 참여자 닉네임
+    - chat_history: 실시간 채팅 내역 [{"nickname": "김매니저", "text": "..."}, ...]
+
+    출력:
+    - nickname: 대상 참여자
+    - message: 생성된 독려 멘트
+    """
+    try:
+        # 입력 검증
+        if not request.nickname:
+            raise HTTPException(status_code=400, detail="닉네임이 필요합니다")
+
+        # 독려 레벨 1 (부드러운 초대) 고정
+        encouragement_level = 1
+
+        # 독려 멘트 생성
+        message = participant_monitor.generate_encouragement_message(
+            nickname=request.nickname,
+            chat_history=request.chat_history,
+            encouragement_level=encouragement_level
+        )
+
+        return EncouragementResponse(
+            nickname=request.nickname,
+            message=message
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"독려 멘트 생성 중 오류: {str(e)}"
+        )
 
 @app.post("/classify", response_model=ClassifyResponse)
 async def classify(request: ClassifyRequest):
