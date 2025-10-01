@@ -22,7 +22,7 @@ class ParticipantMonitor:
         if self.api_key:
             self.client = OpenAI(api_key=self.api_key)
             self.gpt_enabled = True
-            self.model = "gpt-5-mini"  # Note: gpt-5-mini 출시 시 변경 가능
+            self.model = "gpt-4o-mini"  # Note: gpt-5-mini 출시 시 변경 가능
             print(f"ParticipantMonitor: OpenAI API 키 설정 완료")
         else:
             self.gpt_enabled = False
