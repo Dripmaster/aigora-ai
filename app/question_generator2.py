@@ -27,6 +27,9 @@ class QuestionGenerator2:
         self.video_topics = {}      # 영상 주제
         self.video_details = {}     # 영상 상세 내용
 
+        # 중복 방지를 위한 최근 생성된 질문 히스토리
+        self.recent_questions = []  # 최근 생성된 질문들 (최대 10개 유지)
+
         # AI 페르소나: 숙련된 토론 퍼실리테이터
         self.facilitator_persona = """당신은 **CJ 식음 교육센터의 수석 토론 퍼실리테이터**입니다.
 
@@ -198,6 +201,14 @@ class QuestionGenerator2:
         else:
             chat_summary = "**토론 내역:** 아직 토론이 시작되지 않았습니다.\n"
 
+        # 최근 생성된 질문 히스토리 추가 (중복 방지)
+        recent_questions_text = ""
+        if self.recent_questions:
+            recent_questions_text = "\n**최근 생성된 질문 (중복 방지):**\n"
+            for q in self.recent_questions[-5:]:  # 최근 5개만
+                recent_questions_text += f"- {q}\n"
+            recent_questions_text += "\n위 질문들과 다른 새로운 표현과 내용으로 질문을 생성해주세요.\n"
+
         prompt = f"""[토론 세션 정보]
 **토론 주제:** {discussion_topic}
 
@@ -208,7 +219,7 @@ class QuestionGenerator2:
 {slide_content}
 
 {chat_summary}
-
+{recent_questions_text}
 [질문 생성 미션]
 {nickname}님에게 질문을 만들어주세요.
 
@@ -219,8 +230,9 @@ class QuestionGenerator2:
 4. **친근한 톤**: 이모지 포함, 따뜻하고 격려하는 말투
 5. **실천 중심**: 현장에서 적용 가능한 구체적 질문
 6. **한 문장**: 간결하고 명확하게
+7. **다양성**: 매번 다른 방식으로 표현 (예: 질문형, 제안형, 경험 물어보기 등)
 
-**반드시 한국어로, 한 문장의 질문만 생성하세요.**"""
+**반드시 한국어로, 한 문장의 질문만 생성하세요. 매번 새롭고 창의적인 질문을 만들어주세요.**"""
 
         return prompt
 
@@ -254,14 +266,20 @@ class QuestionGenerator2:
                         {"role": "system", "content": self.system_prompt},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.8,
-                    max_tokens=100,
-                    top_p=0.9,
-                    frequency_penalty=0.4,
-                    presence_penalty=0.4
+                    temperature=1.0,  # 0.8 -> 1.0 (더 다양한 질문 생성)
+                    max_tokens=150,  # 100 -> 150 (더 긴 문장 허용)
+                    top_p=0.95,  # 0.9 -> 0.95 (더 다양한 토큰 선택)
+                    frequency_penalty=0.6,  # 0.4 -> 0.6 (반복 표현 강하게 억제)
+                    presence_penalty=0.6  # 0.4 -> 0.6 (새로운 주제 더 적극 도입)
                 )
 
                 question = response.choices[0].message.content.strip()
+
+                # 생성된 질문을 히스토리에 추가 (최대 10개 유지)
+                self.recent_questions.append(question)
+                if len(self.recent_questions) > 10:
+                    self.recent_questions.pop(0)
+
                 print(f"[GPT 질문 생성] {nickname}님께: {question}")
                 return question
 
@@ -273,14 +291,33 @@ class QuestionGenerator2:
         return self._generate_fallback_question(nickname)
 
     def _generate_fallback_question(self, nickname: str) -> str:
-        """템플릿 기반 폴백 질문"""
+        """템플릿 기반 폴백 질문 (중복 방지 포함)"""
         templates = [
             f"{nickname}님, 환영합니다! 😊 오늘 주제에 대해 어떻게 생각하시나요?",
             f"{nickname}님의 소중한 의견도 듣고 싶어요! ✨ 편하게 생각 나눠주시겠어요?",
             f"{nickname}님, 토론 주제 관련해서 경험이나 의견 있으시면 들려주세요! 👋",
             f"{nickname}님 생각도 궁금한데요! 💡 어떤 점이 인상적이셨나요?",
-            f"{nickname}님, 혹시 비슷한 경험 있으셨나요? 😄 나눠주시면 좋을 것 같아요!"
+            f"{nickname}님, 혹시 비슷한 경험 있으셨나요? 😄 나눠주시면 좋을 것 같아요!",
+            f"{nickname}님의 이야기도 들려주세요! 🌟",
+            f"{nickname}님, 함께 이야기 나누면 더 좋을 것 같아요! 😄",
+            f"{nickname}님의 시각도 공유해주시면 어떨까요? 👍",
+            f"{nickname}님, 어떤 생각이 드시는지 편하게 말씀해주세요! 🙂",
+            f"{nickname}님의 경험도 듣고 싶어요! 🎯"
         ]
-        question = random.choice(templates)
+
+        # 중복 방지: 최근 사용된 템플릿 제외
+        available_templates = [t for t in templates if t not in self.recent_questions[-5:]]
+
+        # 모든 템플릿이 최근에 사용되었다면 전체 풀에서 선택
+        if not available_templates:
+            available_templates = templates
+
+        question = random.choice(available_templates)
+
+        # 생성된 질문을 히스토리에 추가
+        self.recent_questions.append(question)
+        if len(self.recent_questions) > 10:
+            self.recent_questions.pop(0)
+
         print(f"[템플릿 질문] {nickname}님께: {question}")
         return question
