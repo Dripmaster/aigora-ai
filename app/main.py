@@ -6,10 +6,10 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
 from typing import Dict, Optional, List
-from app.answer_generator import AnswerGenerator
 from app.question_generator2 import QuestionGenerator2
 from app.participant_monitor import ParticipantMonitor
 from app.message_classifier2 import MessageClassifier2
+from app.message_classifier_gpt import MessageClassifierGPT
 from app.discussion_evaluator import PersonalEvaluator
 
 load_dotenv()
@@ -21,10 +21,10 @@ app = FastAPI(
 )
 
 # 초기화
-answer_generator = AnswerGenerator()
 question_generator2 = QuestionGenerator2()
 participant_monitor = ParticipantMonitor()
 message_classifier = MessageClassifier2()
+message_classifier_gpt = MessageClassifierGPT()
 discussion_evaluator = PersonalEvaluator()
 
 # QuestionGenerator2 교육 컨텐츠 로드
@@ -37,7 +37,6 @@ else:
 class Question2Request(BaseModel):
     nickname: str
     discussion_topic: str
-    questionText: str
     video_id: str
     chat_history: List[Dict]
 
@@ -77,6 +76,17 @@ class ProfileResponse(BaseModel):
     top_traits: List[str]
     overall_summary: str
 
+class ClassifyGPTRequest(BaseModel):
+    text: str
+    user_id: str
+    context: Optional[Dict] = None
+
+class ClassifyGPTResponse(BaseModel):
+    cj_values: Dict[str, int]
+    primary_trait: str
+    summary: str
+    user_id: str
+
 class EvaluationRequest(BaseModel):
     user_id: str
     user_messages: List[Dict]
@@ -115,7 +125,8 @@ async def root():
         "endpoints": {
             "/question": "토론 참여 유도 질문 생성 (교육 컨텐츠 기반)",
             "/encouragement": "참여 독려 멘트 생성",
-            "/classify": "메시지 CJ 인재상 분류",
+            "/classify": "메시지 CJ 인재상 분류 (규칙 기반)",
+            "/classify-gpt": "메시지 CJ 인재상 분류 (GPT 기반)",
             "/profile": "사용자 종합 프로필 생성",
             "/evaluate": "개인 맞춤형 토론 총평 생성",
             "/discussion-overall": "전체 토론 AI 총평 생성"
@@ -133,9 +144,10 @@ async def question(request: Question2Request):
     - video_id: 현재 토론 중인 영상 ID (예: "video_tous_1")
     - chat_history: 실시간 채팅 내역 [{"nickname": "김매니저", "text": "..."}, ...]
     """
-    print(request)
     try:
         # 입력 검증
+        if not request.nickname:
+            raise HTTPException(status_code=400, detail="닉네임이 필요합니다")
 
         if not request.video_id:
             raise HTTPException(status_code=400, detail="영상 ID가 필요합니다")
@@ -156,61 +168,6 @@ async def question(request: Question2Request):
         generated_question = question_generator2.generate_question(
             nickname=request.nickname,
             discussion_topic=request.discussion_topic,
-            video_script=video_script,
-            slide_content=slide_content,
-            chat_history=request.chat_history
-        )
-
-        return Question2Response(
-            question=generated_question,
-            target_user=request.nickname,
-            video_id=request.video_id,
-            discussion_topic=request.discussion_topic
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"질문 생성 중 오류 발생: {str(e)}"
-        )
-    
-@app.post("/qa", response_model=Question2Response)
-async def qa(request: Question2Request):
-    """
-    교육 컨텐츠 기반 토론 참여 유도 질문 생성 (QuestionGenerator2)
-
-    입력:
-    - nickname: 질문 대상 참여자 닉네임
-    - discussion_topic: 현재 토론 주제
-    - video_id: 현재 토론 중인 영상 ID (예: "video_tous_1")
-    - chat_history: 실시간 채팅 내역 [{"nickname": "김매니저", "text": "..."}, ...]
-    """
-    print(request)
-    try:
-        # 입력 검증
-
-        if not request.video_id:
-            raise HTTPException(status_code=400, detail="영상 ID가 필요합니다")
-
-        # 영상 스크립트 가져오기
-        video_script = question_generator2.get_video_script(request.video_id)
-
-        if "찾을 수 없습니다" in video_script:
-            raise HTTPException(
-                status_code=404,
-                detail=f"영상 ID '{request.video_id}'를 찾을 수 없습니다"
-            )
-
-        # 슬라이드 내용 가져오기
-        slide_content = question_generator2.get_slide_content_text()
-
-        # 질문 생성
-        generated_question = answer_generator.generate_answer(
-            nickname=request.nickname,
-            discussion_topic=request.discussion_topic,
-            question_text = request.questionText,
             video_script=video_script,
             slide_content=slide_content,
             chat_history=request.chat_history
@@ -274,21 +231,21 @@ async def generate_encouragement(request: EncouragementRequest):
 
 @app.post("/classify", response_model=ClassifyResponse)
 async def classify(request: ClassifyRequest):
-    """메시지를 CJ 인재상 기준으로 분류"""
+    """메시지를 CJ 인재상 기준으로 분류 (규칙 기반)"""
     try:
         # 입력 검증
         if not request.text or len(request.text.strip()) < 1:
             raise HTTPException(status_code=400, detail="메시지가 비어있습니다")
-        
+
         if not request.user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 필요합니다")
-        
+
         # 메시지 분류 수행
         result = message_classifier.classify(
-            request.text, 
+            request.text,
             request.user_id
         )
-        
+
         return ClassifyResponse(
             cj_values=result["cj_values"],
             primary_trait=result["multiple_traits"],
@@ -297,6 +254,33 @@ async def classify(request: ClassifyRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"분류 처리 중 오류 발생: {str(e)}")
+
+@app.post("/classify-gpt", response_model=ClassifyGPTResponse)
+async def classify_gpt(request: ClassifyGPTRequest):
+    """메시지를 CJ 인재상 기준으로 분류 (GPT 기반)"""
+    try:
+        # 입력 검증
+        if not request.text or len(request.text.strip()) < 1:
+            raise HTTPException(status_code=400, detail="메시지가 비어있습니다")
+
+        if not request.user_id:
+            raise HTTPException(status_code=400, detail="사용자 ID가 필요합니다")
+
+        # GPT 메시지 분류 수행
+        result = message_classifier_gpt.classify(
+            request.text,
+            request.user_id,
+            request.context
+        )
+
+        return ClassifyGPTResponse(
+            cj_values=result["cj_values"],
+            primary_trait=result["primary_trait"],
+            summary=result["summary"],
+            user_id=request.user_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"GPT 분류 처리 중 오류 발생: {str(e)}")
 
 @app.post("/profile", response_model=ProfileResponse)
 async def profile(request: ProfileRequest):
