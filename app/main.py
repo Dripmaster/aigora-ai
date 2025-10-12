@@ -11,6 +11,7 @@ from app.participant_monitor import ParticipantMonitor
 from app.message_classifier2 import MessageClassifier2
 from app.message_classifier_gpt import MessageClassifierGPT
 from app.discussion_evaluator import PersonalEvaluator
+from app.answer_generator import AnswerGenerator
 
 load_dotenv()
 
@@ -26,6 +27,7 @@ participant_monitor = ParticipantMonitor()
 message_classifier = MessageClassifier2()
 message_classifier_gpt = MessageClassifierGPT()
 discussion_evaluator = PersonalEvaluator()
+answer_generator = AnswerGenerator()
 
 # QuestionGenerator2 교육 컨텐츠 로드
 educational_content_path = os.path.join(os.path.dirname(__file__), "..", "educational_content.json")
@@ -39,6 +41,7 @@ class Question2Request(BaseModel):
     discussion_topic: str
     video_id: str
     chat_history: List[Dict]
+    questionText:str
 
 class Question2Response(BaseModel):
     question: str
