@@ -187,7 +187,60 @@ async def question(request: Question2Request):
             status_code=500,
             detail=f"질문 생성 중 오류 발생: {str(e)}"
         )
+    
+@app.post("/qa", response_model=Question2Response)
+async def qa(request: Question2Request):
+    """
+    교육 컨텐츠 기반 토론 참여 유도 질문 생성 (QuestionGenerator2)
 
+    입력:
+    - nickname: 질문 대상 참여자 닉네임
+    - discussion_topic: 현재 토론 주제
+    - video_id: 현재 토론 중인 영상 ID (예: "video_tous_1")
+    - chat_history: 실시간 채팅 내역 [{"nickname": "김매니저", "text": "..."}, ...]
+    """
+    try:
+        # 입력 검증
+
+        if not request.video_id:
+            raise HTTPException(status_code=400, detail="영상 ID가 필요합니다")
+
+        # 영상 스크립트 가져오기
+        video_script = question_generator2.get_video_script(request.video_id)
+
+        if "찾을 수 없습니다" in video_script:
+            raise HTTPException(
+                status_code=404,
+                detail=f"영상 ID '{request.video_id}'를 찾을 수 없습니다"
+            )
+
+        # 슬라이드 내용 가져오기
+        slide_content = question_generator2.get_slide_content_text()
+
+        # 질문 생성
+        generated_question = answer_generator.generate_answer(
+            nickname=request.nickname,
+            discussion_topic=request.discussion_topic,
+            question_text = request.questionText,
+            video_script=video_script,
+            slide_content=slide_content,
+            chat_history=request.chat_history
+        )
+
+        return Question2Response(
+            question=generated_question,
+            target_user=request.nickname,
+            video_id=request.video_id,
+            discussion_topic=request.discussion_topic
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"질문 생성 중 오류 발생: {str(e)}"
+        )
 @app.post("/encouragement", response_model=EncouragementResponse)
 async def generate_encouragement(request: EncouragementRequest):
     """
