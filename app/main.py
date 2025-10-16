@@ -12,6 +12,7 @@ from app.message_classifier2 import MessageClassifier2
 from app.message_classifier_gpt import MessageClassifierGPT
 from app.discussion_evaluator import PersonalEvaluator
 from app.answer_generator import AnswerGenerator
+from app.discussion_summarizer import DiscussionSummarizer
 
 load_dotenv()
 
@@ -28,6 +29,7 @@ message_classifier = MessageClassifier2()
 message_classifier_gpt = MessageClassifierGPT()
 discussion_evaluator = PersonalEvaluator()
 answer_generator = AnswerGenerator()
+discussion_summarizer = DiscussionSummarizer()
 
 # QuestionGenerator2 교육 컨텐츠 로드
 educational_content_path = os.path.join(os.path.dirname(__file__), "..", "educational_content.json")
@@ -119,6 +121,33 @@ class DiscussionOverallResponse(BaseModel):
     evaluation_date: str
     evaluation_method: str
 
+class DiscussionTopicItem(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class RepresentativeStatement(BaseModel):
+    speaker: str
+    text: str
+    reason: Optional[str] = None
+
+class TopicSummaryItem(BaseModel):
+    topic: str
+    summary: str
+    representative_statements: List[RepresentativeStatement]
+
+class DiscussionSummaryRequest(BaseModel):
+    discussion_topics: List[DiscussionTopicItem]
+    chat_history: List[Dict]
+    focus_user: Optional[str] = None
+    max_statements_per_topic: Optional[int] = 3
+
+class DiscussionSummaryResponse(BaseModel):
+    overall_summary: str
+    topics: List[TopicSummaryItem]
+    focus_user_highlights: Optional[List[str]] = None
+    summary_method: str
+    generated_at: str
+
 @app.get("/")
 async def root():
     return {
@@ -132,7 +161,8 @@ async def root():
             "/classify-gpt": "메시지 CJ 인재상 분류 (GPT 기반)",
             "/profile": "사용자 종합 프로필 생성",
             "/evaluate": "개인 맞춤형 토론 총평 생성",
-            "/discussion-overall": "전체 토론 AI 총평 생성"
+            "/discussion-overall": "전체 토론 AI 총평 생성",
+            "/discussion-summary": "토론 주제별 대표 발언 및 요약 생성"
         }
     }
 
@@ -416,6 +446,33 @@ async def discussion_overall(request: DiscussionOverallRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"토론 총평 생성 중 오류 발생: {str(e)}")
+
+@app.post("/discussion-summary", response_model=DiscussionSummaryResponse)
+async def discussion_summary(request: DiscussionSummaryRequest):
+    """채팅 내역과 토론 주제를 기반으로 대표 발언과 요약 생성"""
+    try:
+        if not request.discussion_topics:
+            raise HTTPException(status_code=400, detail="토론 주제가 필요합니다")
+
+        max_statements = request.max_statements_per_topic or 3
+        if max_statements < 1:
+            max_statements = 1
+        if max_statements > 8:
+            max_statements = 8
+
+        result = discussion_summarizer.summarize(
+            request.chat_history or [],
+            [topic.dict() for topic in request.discussion_topics],
+            request.focus_user,
+            max_statements
+        )
+
+        return DiscussionSummaryResponse(**result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"토론 요약 생성 중 오류 발생: {str(e)}")
 
 @app.get("/form", response_class=HTMLResponse)
 async def form_page():
