@@ -220,19 +220,50 @@ class QuestionGenerator2:
 
 {chat_summary}
 {recent_questions_text}
+
 [질문 생성 미션]
-{nickname}님에게 질문을 만들어주세요.
+{nickname}님에게 질문이나 답변을 생성할지 결정해주세요.
 
-요구사항:
-1. **교육 내용 연계**: 위 영상 스크립트와 슬라이드 내용을 자연스럽게 연결
-2. **토론 흐름 고려**: 최근 채팅 내용을 읽고 맥락에 맞는 질문
-3. **토론 분석 드러내기**: AI가 토론 내용을 깊이 분석하고 있음을 보여주는 질문
-4. **친근한 톤**: 이모지 포함, 따뜻하고 격려하는 말투
-5. **실천 중심**: 현장에서 적용 가능한 구체적 질문
-6. **한 문장**: 간결하고 명확하게
-7. **다양성**: 매번 다른 방식으로 표현 (예: 질문형, 제안형, 경험 물어보기 등)
+🚨 **1단계: 먼저 질문이 필요한지 판단 (매우 중요!)**
 
-**반드시 한국어로, 한 문장의 질문만 생성하세요. 매번 새롭고 창의적인 질문을 만들어주세요.**"""
+최근 10개 메시지를 분석하여 다음 중 하나라도 해당되면 **반드시 need_question: false**로 설정:
+
+1. ✋ {nickname}님이 **최근 1-3개 메시지 안에** 의미있는 발언을 했음
+   - 예: "{nickname}: 저는 정직이 중요하다고 생각합니다..."
+
+2. ✋ {nickname}님이 **최근 10개 중 3개 이상** 발언했음 (이미 충분히 참여)
+
+3. ✋ **다른 참여자가** {nickname}님에게 **방금 질문**했음
+   - 예: "김민수: {nickname}님, 어떻게 생각하세요?"
+
+4. ✋ {nickname}님이 **질문에 답변하는 중**임
+   - 예: "김민수: {nickname}님 의견은?" → "{nickname}: 네, 저는..."
+
+5. ✋ {nickname}님이 **전혀 발언하지 않았지만** 토론이 매우 활발함
+
+위 조건에 해당되지 않고 질문이 필요한 경우만 **need_question: true** 설정
+
+📝 **2단계: 질문이 필요하면 생성**
+
+need_question이 true인 경우에만:
+1. **교육 내용 연계**: 영상 스크립트와 슬라이드 내용 활용
+2. **토론 흐름 고려**: 최근 채팅 맥락 반영
+3. **친근한 톤**: 이모지, 따뜻한 말투
+4. **한 문장**: 간결하고 명확하게
+
+**응답 형식 (JSON만 출력):**
+{{
+  "need_question": true 또는 false,
+  "reason": "판단 이유를 한 문장으로",
+  "question": "질문 문장 (need_question이 false면 빈 문자열)"
+}}
+
+**예시:**
+- need_question이 false인 경우:
+{{"need_question": false, "reason": "{nickname}님이 방금 발언했음", "question": ""}}
+
+- need_question이 true인 경우:
+{{"need_question": true, "reason": "{nickname}님이 오랫동안 침묵", "question": "{nickname}님 생각도 듣고 싶어요! 😊"}}"""
 
         return prompt
 
@@ -266,22 +297,46 @@ class QuestionGenerator2:
                         {"role": "system", "content": self.system_prompt},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=1.0,  # 0.8 -> 1.0 (더 다양한 질문 생성)
-                    max_tokens=150,  # 100 -> 150 (더 긴 문장 허용)
-                    top_p=0.95,  # 0.9 -> 0.95 (더 다양한 토큰 선택)
-                    frequency_penalty=0.6,  # 0.4 -> 0.6 (반복 표현 강하게 억제)
-                    presence_penalty=0.6  # 0.4 -> 0.6 (새로운 주제 더 적극 도입)
+                    temperature=0.7,  # 1.0 -> 0.7 (더 일관된 판단)
+                    max_tokens=200,  # 150 -> 200 (JSON 응답 충분히 수용)
+                    response_format={"type": "json_object"}  # JSON 형식 강제
                 )
 
-                question = response.choices[0].message.content.strip()
+                content = response.choices[0].message.content.strip()
 
-                # 생성된 질문을 히스토리에 추가 (최대 10개 유지)
-                self.recent_questions.append(question)
-                if len(self.recent_questions) > 10:
-                    self.recent_questions.pop(0)
+                # JSON 파싱
+                try:
+                    result = json.loads(content)
+                    need_question = result.get("need_question", True)
+                    reason = result.get("reason", "")
+                    question = result.get("question", "")
 
-                print(f"[GPT 질문 생성] {nickname}님께: {question}")
-                return question
+                    print(f"[GPT 분석] {nickname}님 - need_question: {need_question}, reason: {reason}")
+
+                    if not need_question:
+                        # 질문이 불필요한 경우
+                        print(f"[결과없음] {nickname}님께 질문 생성하지 않음 - {reason}")
+                        return "결과없음"
+                    else:
+                        # 질문이 필요한 경우
+                        if not question:
+                            # question이 비어있으면 폴백
+                            return self._generate_fallback_question(nickname)
+
+                        # 생성된 질문을 히스토리에 추가 (최대 10개 유지)
+                        self.recent_questions.append(question)
+                        if len(self.recent_questions) > 10:
+                            self.recent_questions.pop(0)
+
+                        print(f"[GPT 질문 생성] {nickname}님께: {question}")
+                        return question
+
+                except json.JSONDecodeError as e:
+                    print(f"JSON 파싱 오류: {e}, 응답 내용: {content}")
+                    # JSON 파싱 실패 시 기존 방식으로 처리
+                    if content == "결과없음":
+                        return "결과없음"
+                    return content
 
             except Exception as e:
                 print(f"GPT API 오류: {e}, 템플릿 모드로 전환")
