@@ -257,7 +257,7 @@ class AnswerGenerator:
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.8,
-                    max_tokens=120,
+                    max_tokens=200,
                     top_p=0.9,
                     frequency_penalty=0.4,
                     presence_penalty=0.4
