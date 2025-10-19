@@ -125,25 +125,22 @@ class DiscussionTopicItem(BaseModel):
     name: str
     description: Optional[str] = None
 
-class UserStatement(BaseModel):
-    text: str
-    reason: str
-
-class UserTopicAnalysis(BaseModel):
+class TopicSummary(BaseModel):
     topic: str
-    user_statements: List[UserStatement]
-    feedback: str
+    relevance_score: float
+    related_statements: List[str]
+    summary: str
 
 class UserSummaryRequest(BaseModel):
     user_id: str
     chat_history: List[Dict]
     discussion_topics: List[DiscussionTopicItem]
-    max_statements_per_topic: Optional[int] = 3
+    # 하위호환 목적: Summarizer는 현재 이 값을 사용하지 않음
+    max_statements_per_topic: Optional[int] = None
 
 class UserSummaryResponse(BaseModel):
     user_id: str
-    topics: List[UserTopicAnalysis]
-    overall_feedback: str
+    topics: List[TopicSummary]
     generated_at: str
 
 @app.get("/")
@@ -476,57 +473,34 @@ async def discussion_overall(request: DiscussionOverallRequest):
 @app.post("/user-summary", response_model=UserSummaryResponse)
 async def user_summary(request: UserSummaryRequest):
     """
-    특정 사용자의 토론 참여를 분석하여 주제별 대표 발언과 개인화된 피드백 생성
+    특정 사용자의 토론 참여를 분석하여 주제별 관련 발언 요약과 관련도 점수를 반환.
 
-    입력:
-    - user_id: 분석할 사용자 ID (nickname 또는 user_id)
-    - chat_history: 전체 채팅 내역 [{"nickname": "...", "text": "...", "timestamp": "..."}, ...]
-    - discussion_topics: 토론 주제 목록 [{"name": "정직한 고객 소통", "description": "..."}, ...]
-    - max_statements_per_topic: 주제별 대표 발언 최대 개수 (기본값: 3, 최대: 8)
-
-    출력:
-    - user_id: 사용자 ID
-    - topics: 주제별 분석 결과
-      - topic: 주제명
-      - user_statements: 대표 발언 목록
-        - text: 발언 원문
-        - reason: 선정 이유 (칭찬)
-      - feedback: 주제별 피드백 (150-200자)
-    - overall_feedback: 전체 종합 피드백 (200-300자)
-    - generated_at: 생성 시각
-
-    대표 발언 선정 기준:
-    1. 주제 관련성: 해당 주제와 직접적으로 연결되는 발언
-    2. CJ 가치 부합도: CJ의 4가지 가치(정직/열정/창의/존중)를 잘 보여주는 발언
-    3. 내용의 구체성: 실제 경험이나 사례를 제시하는 발언
-    4. 토론 기여도: 새로운 관점이나 인사이트를 제공하는 발언
-    5. 발언의 깊이: 충분한 설명이 있는 발언 우선
+    DiscussionSummarizer에 맞춘 간결한 스키마로 응답합니다.
+    - topics[]: { topic, relevance_score(0~1), related_statements[], summary }
     """
     try:
         # 입력 검증
         if not request.user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 필요합니다")
-
         if not request.discussion_topics:
             raise HTTPException(status_code=400, detail="토론 주제가 필요합니다")
-
         if not request.chat_history:
             raise HTTPException(status_code=400, detail="채팅 내역이 필요합니다")
 
-        # max_statements 검증
-        max_statements = request.max_statements_per_topic or 3
-        if max_statements < 1:
-            max_statements = 1
-        if max_statements > 8:
-            max_statements = 8
+        # 토론 주제 목록을 dict 리스트로 정규화하여 전달
+        topics_payload = [topic.dict() for topic in request.discussion_topics]
 
-        # 사용자 토론 참여 분석
+        # 사용자 토론 참여 분석 (새 Summarizer 인터페이스)
         result = discussion_summarizer.summarize_user(
             user_id=request.user_id,
             chat_history=request.chat_history,
-            discussion_topics=[topic.dict() for topic in request.discussion_topics],
-            max_statements_per_topic=max_statements
+            discussion_topics=topics_payload,
         )
+
+        # 안전 장치: generated_at이 없으면 현재 시각으로 대체
+        if 'generated_at' not in result or not result.get('generated_at'):
+            from datetime import datetime
+            result['generated_at'] = datetime.now().isoformat()
 
         return UserSummaryResponse(**result)
 
