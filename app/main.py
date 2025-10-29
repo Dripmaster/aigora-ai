@@ -1,5 +1,6 @@
 
 from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks
 from fastapi.responses import HTMLResponse
 from fastapi import Form
 from pydantic import BaseModel
@@ -491,7 +492,7 @@ async def user_summary(request: UserSummaryRequest):
         topics_payload = [topic.dict() for topic in request.discussion_topics]
 
         # 사용자 토론 참여 분석 (새 Summarizer 인터페이스)
-        result = discussion_summarizer.summarize_user(
+        result = await discussion_summarizer.summarize_user_async(
             user_id=request.user_id,
             chat_history=request.chat_history,
             discussion_topics=topics_payload,
