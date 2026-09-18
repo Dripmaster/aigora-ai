@@ -1,3 +1,4 @@
+from app.financial_prompts import ENCOURAGEMENT_RULES
 from typing import Dict, List, Optional
 from openai import OpenAI
 import os
@@ -20,7 +21,7 @@ class ParticipantMonitor:
     def __init__(self):
         self.api_key = os.getenv("OPENAI_API_KEY")
         if self.api_key:
-            self.client = OpenAI(api_key=self.api_key)
+            self.client = OpenAI(api_key=self.api_key, timeout=20.0, max_retries=0)
             self.gpt_enabled = True
             self.model = "gpt-4o-mini"  # Note: gpt-5-mini 출시 시 변경 가능
             print(f"ParticipantMonitor: OpenAI API 키 설정 완료")
@@ -35,64 +36,18 @@ class ParticipantMonitor:
         self.recent_messages = []  # 최근 생성된 독려 멘트 (중복 방지용)
 
         # AI 페르소나: 참여 독려 전문가
-        self.encouragement_persona = """당신은 **CJ 식음 교육 토론의 참여 독려 전문가**입니다.
-
-**핵심 역할:**
-참여가 저조한 사람들에게 부담 없이 토론에 참여할 수 있도록 따뜻하고 친근한 독려 멘트를 생성합니다.
-
-**독려 멘트 생성 원칙:**
-
-1. **친근하고 따뜻한 톤**
-   - 부담 주지 않는 부드러운 말투
-   - 격려와 환대가 느껴지는 표현
-   - 존댓말 사용하되 딱딱하지 않게
-
-2. **참여 수준별 맞춤 독려**
-   - 미참여자: "OOO님도 함께 이야기 나눠주시면 좋겠어요 😊"
-   - 소극적 참여자: "OOO님 생각도 궁금한데요! 💡"
-   - 리액션만 한 사람: "OOO님, 공감해주셔서 감사해요! 👏 구체적인 생각도 나눠주실래요?"
-
-3. **공개 채팅방 형식**
-   - 모든 멘트는 전체 채팅방에 공개됨
-   - 반드시 닉네임으로 시작 (예: "김매니저님,")
-   - 다른 참여자들도 볼 수 있음을 고려
-
-4. **이모지 적극 활용**
-   - 친근감을 주는 이모지 1~2개 포함
-   - 😊, 💡, ✨, 👏, 💬, 🤔, 😄 등 긍정적 이모지
-
-5. **부담 없는 질문**
-   - 강요하지 않는 초대형 질문
-   - "~하시면 어떨까요?", "~해주시면 좋겠어요"
-   - 열린 질문으로 자유로운 참여 유도
-
-**독려 멘트 유형:**
-
-**1단계 - 부드러운 초대 (미참여자, 1차)**
-- "OOO님도 함께 의견 나눠주시면 좋겠어요! 😊"
-- "OOO님 생각도 듣고 싶어요! 💡 편하게 말씀해주세요"
-- "OOO님, 어떻게 생각하시는지 궁금해요! ✨"
-
-**2단계 - 직접 호명 (미참여자, 2차 이상)**
-- "OOO님, 혹시 비슷한 경험 있으셨나요? 🤔"
-- "OOO님의 의견이 정말 궁금해요! 😄 나눠주실래요?"
-- "OOO님, 다른 분들 의견 중 공감되는 부분 있으셨나요? 💬"
-
-**3단계 - 배려 확인 (지속 미참여)**
-- "OOO님, 토론 내용 잘 따라오고 계신가요? 😊"
-- "OOO님, 혹시 궁금한 점이나 어려운 부분 있으시면 편하게 말씀해주세요! 🙏"
-- "OOO님, 괜찮으신가요? 도움이 필요하시면 언제든 말씀해주세요! 💙"
-
-**금기사항:**
-- ❌ 압박하거나 강요하는 톤
-- ❌ 부정적이거나 비난하는 표현
-- ❌ "왜 참여 안 하세요?" 같은 직접적 지적
-- ❌ 참여 부족을 공개적으로 언급
-- ❌ 닉네임 없이 멘트 시작
-
-**목표:**
-모든 참여자가 안전하고 편안하게 토론에 참여하도록 따뜻한 독려 멘트 제공
-"""
+        self.encouragement_persona = '''당신은 금융교육 토론의 참여 독려 도우미입니다.
+당신의 역할은 학생이 부담 없이 토론에 참여하도록 돕는 것입니다.
+따뜻하고 친근한 존댓말로 환대하고, 딱딱한 공지 대신 자연스럽게 대화에 초대하세요.
+따뜻함은 학생의 말을 들어주는 표현으로 드러내고, 매번 '멋진 계획', '좋은 선택'이라고 평가하지 마세요.
+최근 학생 발언에서 실제 나온 의견이나 궁금한 점을 연결해 토론을 듣고 있음을 보여주세요.
+미참여자에게는 부드러운 초대, 의견을 낸 학생에게는 그 의견에 연결한 질문,
+리액션만 한 학생에게는 공감한 부분을 말할 수 있는 초대를 하되, 제공된 기록에 있을 때만 언급하세요.
+참여 부족을 지적하거나 다른 학생과 비교하지 마세요.
+학생이 준비되었을 때 참여할 수 있도록 여유를 주고, 가벼운 이모지도 자연스럽게 활용하세요.
+영상이나 교재 원문은 제공되지 않으므로, 학생의 실제 발언만 맥락으로 삼으세요.
+입력에 없는 영상 속 행동·계획·사건을 만들어내지 마세요.
+''' + '\n' + ENCOURAGEMENT_RULES
 
         self.system_prompt = self.encouragement_persona
 
@@ -192,7 +147,7 @@ class ParticipantMonitor:
             status = "normal"  # 보통
             engagement_level = 2
         elif message_count == 1 or reaction_count > 0:
-            status = "passive"  # 소극적
+            status = "passive"  # 발언 기록이 적음
             engagement_level = 1
         else:
             status = "silent"  # 침묵
@@ -218,7 +173,7 @@ class ParticipantMonitor:
         return statuses
 
     def get_silent_participants(self) -> List[Dict]:
-        """침묵/소극적 참여자 리스트"""
+        """최근 발언 기록이 적은 참여자 리스트"""
         all_status = self.get_all_participants_status()
         return [s for s in all_status if s["engagement_level"] <= 1]
 
@@ -265,7 +220,7 @@ class ParticipantMonitor:
         elif status["status"] == "passive":
             should_encourage = True
             encouragement_level = min(intervention_count + 1, 2)
-            reason = f"소극적 참여, {intervention_count}회 독려 이력"
+            reason = f"발언 기록 적음, {intervention_count}회 안내 이력"
 
         return {
             "should_encourage": should_encourage,
@@ -292,7 +247,7 @@ class ParticipantMonitor:
             try:
                 return self._generate_gpt_encouragement(nickname, chat_history, encouragement_level)
             except Exception as e:
-                print(f"GPT API 오류: {e}, 템플릿 모드로 전환")
+                print(f"참여 안내 생성 실패: {type(e).__name__}")
 
         # 템플릿 폴백
         return self._generate_template_encouragement(nickname, encouragement_level)
@@ -310,8 +265,8 @@ class ParticipantMonitor:
 
         level_guide = {
             1: "1단계 - 부드러운 초대: 부담 없이 참여를 유도하는 친근한 멘트",
-            2: "2단계 - 직접 호명: 구체적으로 의견을 물어보는 멘트",
-            3: "3단계 - 배려 확인: 토론 이해도나 어려움을 확인하는 멘트"
+            2: "2단계 - 구체적인 초대: 현재 토론이나 영상 속 선택에 연결해 의견을 물어보는 멘트",
+            3: "3단계 - 배려 확인: 궁금한 점이나 도움이 필요한 부분을 편하게 말할 수 있는 멘트"
         }
 
         # 최근 생성된 멘트 히스토리 추가 (중복 방지)
@@ -320,28 +275,15 @@ class ParticipantMonitor:
             recent_messages_text = "\n**최근 생성된 독려 멘트 (중복 방지):**\n"
             for msg in self.recent_messages[-5:]:  # 최근 5개만
                 recent_messages_text += f"- {msg}\n"
-            recent_messages_text += "\n위 멘트들과 다른 새로운 표현을 사용해주세요.\n"
+            recent_messages_text += "\n최근 안내와 의미가 같은 요청을 반복하지 마세요.\n"
 
-        prompt = f"""[토론 상황]
+        prompt = f"""[최근 대화 데이터]
 {recent_chat}
-
-[대상 참여자]
-닉네임: {nickname}
-독려 단계: {level_guide.get(encouragement_level, level_guide[1])}
+[대상 참여자] {nickname}
+[안내 유형] {level_guide.get(encouragement_level, level_guide[1])}
+[최근 안내 문장]
 {recent_messages_text}
-[독려 멘트 생성 요청]
-{nickname}님이 부담 없이 토론에 참여할 수 있도록 독려 멘트를 만들어주세요.
-
-요구사항:
-1. **닉네임 필수**: 반드시 "{nickname}님," 또는 "{nickname}님" 으로 시작
-2. **친근하고 따뜻한 톤**: 격려와 환대가 느껴지는 말투
-3. **이모지 포함**: 긍정적 이모지 1~2개 (😊💡✨👏💬🤔😄🙏💙🌟👍 등 다양하게)
-4. **부담 없는 표현**: 강요하지 않고 초대하는 느낌
-5. **한 문장**: 간결하고 명확하게
-6. **다양한 표현**: 매번 다른 방식으로 표현 (예: 질문형, 제안형, 감탄형 등)
-7. **토론 맥락 활용**: 가능하면 토론 주제나 다른 참여자의 발언을 자연스럽게 언급
-
-**반드시 한국어로, {nickname}님으로 시작하는 한 문장의 독려 멘트만 생성하세요. 매번 새롭고 창의적인 표현을 사용해주세요.**"""
+{ENCOURAGEMENT_RULES}"""
 
         response = self.client.chat.completions.create(
             model=self.model,
@@ -349,11 +291,11 @@ class ParticipantMonitor:
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            temperature=1.0,  # 0.8 -> 1.0 (더 다양한 출력)
-            max_tokens=150,  # 100 -> 150 (더 긴 문장 허용)
-            top_p=0.95,  # 0.9 -> 0.95 (더 다양한 토큰 선택)
-            frequency_penalty=0.6,  # 0.4 -> 0.6 (반복 표현 강하게 억제)
-            presence_penalty=0.6  # 0.4 -> 0.6 (새로운 주제 더 적극 도입)
+            temperature=1.0,
+            max_tokens=150,
+            top_p=0.95,
+            frequency_penalty=0.6,
+            presence_penalty=0.6,
         )
 
         message = response.choices[0].message.content.strip()
@@ -369,42 +311,42 @@ class ParticipantMonitor:
     def _generate_template_encouragement(self, nickname: str, encouragement_level: int) -> str:
         """템플릿 기반 독려 멘트 생성 (다양성 확대)"""
         templates = {
-            1: [  # 부드러운 초대 (확장)
-                f"{nickname}님도 함께 의견 나눠주시면 좋겠어요! 😊",
-                f"{nickname}님 생각도 듣고 싶어요! 💡 편하게 말씀해주세요",
-                f"{nickname}님, 어떻게 생각하시는지 궁금해요! ✨",
-                f"{nickname}님의 이야기도 들려주세요! 🌟",
-                f"{nickname}님, 함께 이야기 나누면 더 좋을 것 같아요! 😄",
-                f"{nickname}님도 참여해주시면 감사하겠어요! 💬",
-                f"{nickname}님의 시각도 공유해주시면 어떨까요? 👍",
-                f"{nickname}님, 어떤 생각이 드시는지 편하게 말씀해주세요! 🙂",
-                f"{nickname}님의 경험도 듣고 싶어요! 🎯",
-                f"{nickname}님, 생각하시는 바를 나눠주시면 좋겠어요! ☺️"
+            1: [
+                f"{nickname}님, 지금 주제에 대한 생각도 듣고 싶어요! 😊 편하게 한마디 나눠주실래요?",
+                f"{nickname}님, 영상에서 가장 눈에 들어온 장면은 무엇이었나요? 💡",
+                f"{nickname}님, 다른 의견을 듣고 새롭게 떠오른 생각이 있다면 들려주세요. ✨",
+                f"{nickname}님, 영상 속 선택 중 공감되는 부분이 있었나요? 🙂",
+                f"{nickname}님, 아직 의견이 정리되지 않았다면 궁금한 점부터 꺼내주셔도 좋아요. 💬",
+                f"{nickname}님, 지금 주제에서 함께 더 이야기해 보고 싶은 부분이 있나요? 😊",
+                f"{nickname}님, 다른 관점으로 볼 수 있는 부분이 있다면 함께 나눠주세요. 💡",
+                f"{nickname}님, 영상 속 인물에게 한 가지 물어볼 수 있다면 어떤 질문을 하고 싶으세요? 🤔",
+                f"{nickname}님, 지금 논의에서 기억해 두고 싶은 내용을 하나 골라볼까요? ✨",
+                f"{nickname}님, 의견과 질문 모두 환영이에요! 준비되시면 함께 이야기 나눠요. 😊",
             ],
-            2: [  # 직접 호명 (확장)
-                f"{nickname}님, 혹시 비슷한 경험 있으셨나요? 🤔",
-                f"{nickname}님의 의견이 정말 궁금해요! 😄 나눠주실래요?",
-                f"{nickname}님, 다른 분들 의견 중 공감되는 부분 있으셨나요? 💬",
-                f"{nickname}님은 이 상황에서 어떻게 하셨을 것 같으세요? 🌟",
-                f"{nickname}님, 현장에서 이런 경험 해보신 적 있으신가요? 💡",
-                f"{nickname}님의 생각은 어떠신지 궁금하네요! 😊",
-                f"{nickname}님, 이 부분에 대해 어떻게 생각하시는지 여쭤봐도 될까요? 🙏",
-                f"{nickname}님은 어떤 방법이 좋다고 생각하세요? 🎯",
-                f"{nickname}님의 관점도 듣고 싶어요! 나눠주실 수 있을까요? ✨",
-                f"{nickname}님, 실제로 비슷한 상황 겪어보셨나요? 👂"
+            2: [
+                f"{nickname}님, 지금 주제와 관련해 영상 속 선택의 이유를 어떻게 보셨나요? 🤔",
+                f"{nickname}님, 영상 속 인물이 결정하기 전에 먼저 확인하면 좋을 점은 무엇일까요? 💡",
+                f"{nickname}님, 이야기 나온 선택지 중 비교해 보고 싶은 두 가지가 있나요? 🙂",
+                f"{nickname}님, 현재 주제에서 가장 중요하게 볼 기준을 하나 꼽는다면 무엇일까요? ✨",
+                f"{nickname}님, 영상 속 인물에게 다른 선택지도 있을지 함께 생각해 볼까요? 💬",
+                f"{nickname}님, 다른 학생의 의견 중 공감되는 부분과 그 이유가 궁금해요. 😊",
+                f"{nickname}님, 지금 논의한 방법을 실행하기 전에 확인할 조건은 무엇일까요? 💡",
+                f"{nickname}님, 영상 속 인물이 놓쳤을 수 있는 점이 있다면 편하게 들려주세요. 🤔",
+                f"{nickname}님, 현재 주제에서 장점과 주의할 점을 함께 짚어볼까요? 🙂",
+                f"{nickname}님, 영상 속 인물에게 작은 행동 하나를 제안한다면 무엇이 좋을까요? ✨",
             ],
-            3: [  # 배려 확인 (확장)
-                f"{nickname}님, 토론 내용 잘 따라오고 계신가요? 😊",
-                f"{nickname}님, 혹시 궁금한 점이나 어려운 부분 있으시면 편하게 말씀해주세요! 🙏",
-                f"{nickname}님, 괜찮으신가요? 도움이 필요하시면 언제든 말씀해주세요! 💙",
-                f"{nickname}님, 토론 주제가 이해되시나요? 질문 있으시면 편하게 물어보세요! 😌",
-                f"{nickname}님, 의견 정리되시면 언제든 편하게 나눠주세요! 🌸",
-                f"{nickname}님, 어려운 부분 있으시면 함께 이야기해봐요! 🤝",
-                f"{nickname}님, 참여하시는 데 불편한 점은 없으신가요? 💬",
-                f"{nickname}님, 천천히 생각하시고 준비되시면 말씀해주세요! ⏰",
-                f"{nickname}님, 토론 방향이 이해되시나요? 궁금하신 점 있으시면 알려주세요! 🧭",
-                f"{nickname}님, 편한 시간에 참여해주시면 감사하겠어요! 🌼"
-            ]
+            3: [
+                f"{nickname}님, 지금 이야기에서 궁금한 부분이 있으면 편하게 물어봐 주세요. 😊",
+                f"{nickname}님, 생각을 정리할 시간이 필요하면 천천히 듣고 계셔도 괜찮아요. 🌿",
+                f"{nickname}님, 함께 다시 살펴보고 싶은 영상 장면이 있나요? 💬",
+                f"{nickname}님, 낯선 용어가 있다면 그 단어부터 함께 이야기해 봐요. 💡",
+                f"{nickname}님, 긴 설명 없이 생각나는 단어나 짧은 질문으로 시작해도 좋아요. 🙂",
+                f"{nickname}님, 개인 경험을 말하지 않고 영상 속 상황으로 이야기하셔도 괜찮아요. 😊",
+                f"{nickname}님, 서로 다른 의견 중 더 설명을 듣고 싶은 부분이 있나요? 🤔",
+                f"{nickname}님, 글로 정리하기 어렵다면 어떤 부분이 고민되는지만 알려주셔도 좋아요. 💬",
+                f"{nickname}님, 지금 주제와 관련해 교사에게 확인하고 싶은 점이 있나요? 💡",
+                f"{nickname}님, 정답을 정하기보다 떠오른 생각을 함께 살펴보는 시간이니 편하게 참여해 주세요. ✨",
+            ],
         }
 
         messages = templates.get(encouragement_level, templates[1])

@@ -1,3 +1,4 @@
+# LEGACY CJ ONLY: preserved for old tests; not imported by financial app.main. See docs/financial-prompts.md.
 # -*- coding: utf-8 -*-
 """
 MessageClassifier2 - 간소화된 Sum 방식 유사도 CJ 인재상 분류기 (다중 인재상 지원)

@@ -1,3 +1,5 @@
+from app.financial_prompts import summary_prompt
+from app.financial_profile import FACILITATOR_PROMPT, PROFILE_VERSION
 import json
 import os
 import hashlib
@@ -32,7 +34,7 @@ class DiscussionSummarizer:
         self._cache: dict[str, tuple[float, dict]] = {}
 
         self.system_prompt = (
-            "당신은 CJ 식음 서비스 매니저 교육 프로그램의 토론 분석가입니다. "
+            FACILITATOR_PROMPT + "\n" +
             "특정 참여자의 발언을 객관적으로 분석하여 주제별로 관련 발언을 요약합니다. "
             "발언의 핵심 내용을 간결하고 명확하게 정리하세요. "
             "반드시 JSON 포맷으로만 응답하세요."
@@ -44,12 +46,12 @@ class DiscussionSummarizer:
                 ".env 파일에 OPENAI_API_KEY를 추가해주세요."
             )
 
-        self.client = OpenAI(api_key=self.api_key)
-        self.async_client = AsyncOpenAI(api_key=self.api_key)
+        self.client = OpenAI(api_key=self.api_key, timeout=20.0, max_retries=0)
+        self.async_client = AsyncOpenAI(api_key=self.api_key, timeout=20.0, max_retries=0)
         print("DiscussionSummarizer: OpenAI API 설정 완료")
 
     def _mk_key(self, user_id: str, chat_history: List[Dict], discussion_topics: List[Dict]) -> str:
-        blob = json.dumps({"u": user_id, "h": chat_history, "t": discussion_topics}, ensure_ascii=False, separators=(",", ":"))
+        blob = json.dumps({"v": PROFILE_VERSION, "u": user_id, "h": chat_history, "t": discussion_topics}, ensure_ascii=False, separators=(",", ":"))
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
     def _get_cache(self, key: str) -> Optional[Dict]:
@@ -105,14 +107,14 @@ class DiscussionSummarizer:
         """
         # 토론 주제 정규화
         normalized_topics = self._normalize_topics(discussion_topics)
-        cache_key = self._mk_key(user_id, chat_history[-self.max_messages:] if chat_history else [], normalized_topics)
+        cache_key = self._mk_key(user_id, self._select_history(chat_history, user_id), normalized_topics)
         cached = self._get_cache(cache_key)
         if cached:
             return cached
 
         # 전체 채팅 내역과 사용자 발언 인덱싱
         indexed_history, user_messages = self._index_chat_history(
-            chat_history[-self.max_messages:] if chat_history else [],
+            self._select_history(chat_history, user_id),
             user_id
         )
 
@@ -137,13 +139,13 @@ class DiscussionSummarizer:
 
     async def summarize_user_async(self, user_id: str, chat_history: List[Dict], discussion_topics: List[Dict[str, Optional[str]]]) -> Dict:
         normalized_topics = self._normalize_topics(discussion_topics)
-        cache_key = self._mk_key(user_id, chat_history[-self.max_messages:] if chat_history else [], normalized_topics)
+        cache_key = self._mk_key(user_id, self._select_history(chat_history, user_id), normalized_topics)
         cached = self._get_cache(cache_key)
         if cached:
             return cached
 
         indexed_history, user_messages = self._index_chat_history(
-            chat_history[-self.max_messages:] if chat_history else [],
+            self._select_history(chat_history, user_id),
             user_id
         )
         if not user_messages:
@@ -193,7 +195,7 @@ class DiscussionSummarizer:
                         "topic": "string (주제 이름만 정확히, 설명 포함 금지)",
                         "relevance_score": 0.85,
                         "related_message_ids": [1, 3, 5],
-                        "summary": "string (100-200자, 관련 발언의 핵심 내용을 객관적으로 요약. 관련 발언이 없으면 빈 문자열)"
+                        "summary": "string (근거 있는 1~2문장, 관련 발언이 없으면 빈 문자열)"
                     }
                 ]
             },
@@ -211,58 +213,7 @@ class DiscussionSummarizer:
                 f"{all_conversation}\n\n"
             )
 
-        user_prompt = (
-            "당신은 토론 내용을 깊이 이해하는 분석 전문가입니다.\n"
-            f"{user_id}님의 발언을 읽고, 각 토론 주제와의 연관성을 스스로 판단하세요.\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "토론 주제 목록\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{topic_text}\n\n"
-            f"{ctx_block}"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{user_id}님의 발언\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{user_conversation}\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "작업 지시\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "각 토론 주제에 대해 다음을 수행하세요:\n\n"
-            "【1단계】 발언 내용 이해 및 연관성 판단\n\n"
-            "   ① 주제의 이름과 설명을 읽고 핵심 의미를 파악하세요\n"
-            "   ② 사용자의 각 발언을 읽고 내용과 맥락을 이해하세요\n"
-            "   ③ 발언이 주제와 의미적으로 연관되는지 스스로 판단하세요\n\n"
-            "   판단 원칙:\n"
-            "   • 주제의 본질적 의미와 관련되면 연관성 있음\n"
-            "   • 표면적 단어 일치가 아닌 내용의 의미로 판단\n"
-            "   • 직접적 언급과 간접적 연관 모두 인정\n"
-            "   • 발언의 의도와 맥락 고려\n"
-            "   • 명백한 잡담(날씨, 인사)만 제외\n\n"
-            "【2단계】 관련 발언 수집 (related_message_ids)\n\n"
-            "   • 주제와 연관된다고 판단한 발언의 id를 모두 수집\n"
-            "   • 위 발언 목록의 id 값만 사용\n"
-            "   • 연관성이 없으면 빈 배열 []\n\n"
-            "【3단계】 연관성 점수 산출 (relevance_score)\n\n"
-            "   • 수집된 발언의 수와 연관 강도를 고려하여 0~1 점수 부여\n"
-            "   • 발언이 많고 연관성이 강할수록 높은 점수\n"
-            "   • 연관 발언이 없으면 0.0\n\n"
-            "【4단계】 요약문 작성 (summary)\n\n"
-            "   • related_message_ids가 비어있지 않으면 반드시 요약 작성\n"
-            "   • 수집된 발언들의 핵심 내용을 객관적으로 정리 (100-200자)\n"
-            "   • 평서문 형식: \"~를 언급했다\", \"~를 강조했다\", \"~를 제안했다\"\n"
-            "   • 감정적 표현이나 칭찬 금지 (훌륭, 대단, 감사 등)\n"
-            "   • related_message_ids가 비어있으면 빈 문자열 \"\"\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "중요 사항\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "✓ 모든 주제에 대해 반드시 분석 수행\n"
-            "✓ topic 필드에는 주제 이름만 정확히 입력 (설명 포함 금지)\n"
-            "✓ 주제의 의미를 깊이 이해하고 넓게 해석\n"
-            "✓ 발언의 표면이 아닌 내용의 본질로 판단\n"
-            "✓ 관련 발언이 있으면 반드시 요약 작성\n"
-            "✓ JSON 형식만 출력, 다른 텍스트 금지\n\n"
-            "응답 JSON 스키마:\n"
-            f"{response_schema}"
-        )
+        user_prompt = summary_prompt(user_id, topic_text, ctx_block, user_conversation, response_schema)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -304,7 +255,7 @@ class DiscussionSummarizer:
                         "topic": "string (주제 이름만 정확히, 설명 포함 금지)",
                         "relevance_score": 0.85,
                         "related_message_ids": [1, 3, 5],
-                        "summary": "string (100-200자, 관련 발언의 핵심 내용을 객관적으로 요약. 관련 발언이 없으면 빈 문자열)"
+                        "summary": "string (근거 있는 1~2문장, 관련 발언이 없으면 빈 문자열)"
                     }
                 ]
             },
@@ -320,58 +271,7 @@ class DiscussionSummarizer:
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{all_conversation}\n\n"
             )
-        user_prompt = (
-            "당신은 토론 내용을 깊이 이해하는 분석 전문가입니다.\n"
-            f"{user_id}님의 발언을 읽고, 각 토론 주제와의 연관성을 스스로 판단하세요.\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "토론 주제 목록\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{topic_text}\n\n"
-            f"{ctx_block}"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{user_id}님의 발언\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{user_conversation}\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "작업 지시\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "각 토론 주제에 대해 다음을 수행하세요:\n\n"
-            "【1단계】 발언 내용 이해 및 연관성 판단\n\n"
-            "   ① 주제의 이름과 설명을 읽고 핵심 의미를 파악하세요\n"
-            "   ② 사용자의 각 발언을 읽고 내용과 맥락을 이해하세요\n"
-            "   ③ 발언이 주제와 의미적으로 연관되는지 스스로 판단하세요\n\n"
-            "   판단 원칙:\n"
-            "   • 주제의 본질적 의미와 관련되면 연관성 있음\n"
-            "   • 표면적 단어 일치가 아닌 내용의 의미로 판단\n"
-            "   • 직접적 언급과 간접적 연관 모두 인정\n"
-            "   • 발언의 의도와 맥락 고려\n"
-            "   • 명백한 잡담(날씨, 인사)만 제외\n\n"
-            "【2단계】 관련 발언 수집 (related_message_ids)\n\n"
-            "   • 주제와 연관된다고 판단한 발언의 id를 모두 수집\n"
-            "   • 위 발언 목록의 id 값만 사용\n"
-            "   • 연관성이 없으면 빈 배열 []\n\n"
-            "【3단계】 연관성 점수 산출 (relevance_score)\n\n"
-            "   • 수집된 발언의 수와 연관 강도를 고려하여 0~1 점수 부여\n"
-            "   • 발언이 많고 연관성이 강할수록 높은 점수\n"
-            "   • 연관 발언이 없으면 0.0\n\n"
-            "【4단계】 요약문 작성 (summary)\n\n"
-            "   • related_message_ids가 비어있지 않으면 반드시 요약 작성\n"
-            "   • 수집된 발언들의 핵심 내용을 객관적으로 정리 (100-200자)\n"
-            "   • 평서문 형식: \"~를 언급했다\", \"~를 강조했다\", \"~를 제안했다\"\n"
-            "   • 감정적 표현이나 칭찬 금지 (훌륭, 대단, 감사 등)\n"
-            "   • related_message_ids가 비어있으면 빈 문자열 \"\"\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "중요 사항\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "✓ 모든 주제에 대해 반드시 분석 수행\n"
-            "✓ topic 필드에는 주제 이름만 정확히 입력 (설명 포함 금지)\n"
-            "✓ 주제의 의미를 깊이 이해하고 넓게 해석\n"
-            "✓ 발언의 표면이 아닌 내용의 본질로 판단\n"
-            "✓ 관련 발언이 있으면 반드시 요약 작성\n"
-            "✓ JSON 형식만 출력, 다른 텍스트 금지\n\n"
-            "응답 JSON 스키마:\n"
-            f"{response_schema}"
-        )
+        user_prompt = summary_prompt(user_id, topic_text, ctx_block, user_conversation, response_schema)
         response = await self.async_client.chat.completions.create(
             model=self.model,
             messages=[
@@ -417,7 +317,8 @@ class DiscussionSummarizer:
 
             # 관련 발언이 없으면 명시
             if not related_statements:
-                summary = "이 주제와 관련된 발언이 없습니다."
+                summary = ""
+                relevance_score = 0.0
 
             resolved_topics.append({
                 "topic": topic_name,
@@ -436,7 +337,7 @@ class DiscussionSummarizer:
                 resolved_name = resolved["topic"].lower().strip()
 
                 # 정확히 일치하거나, GPT가 설명을 포함한 경우 처리
-                # 예: "메뉴 개발 및 품질 관리" vs "메뉴 개발 및 품질 관리 - 신메뉴 개발..."
+                # 예: "목표 정하기" vs "목표 정하기 - 저축 계획..."
                 if resolved_name == original_name or resolved_name.startswith(original_name + " -"):
                     # 주제 이름을 원본으로 교체
                     resolved["topic"] = original_topic["name"]
@@ -449,7 +350,7 @@ class DiscussionSummarizer:
                     "topic": original_topic["name"],
                     "relevance_score": 0.0,
                     "related_statements": [],
-                    "summary": "이 주제와 관련된 발언이 없습니다."
+                    "summary": ""
                 })
 
         return {
@@ -458,6 +359,23 @@ class DiscussionSummarizer:
         }
 
     # ========== Helper Methods ==========
+
+    def _select_history(self, history, user_id):
+        """Keep the target's contributions even when other speakers fill the recent window."""
+        limit = max(1, self.max_messages)
+        target = [i for i, m in enumerate(history or []) if
+                  (m.get('nickname') or m.get('user_id') or m.get('speaker')) == user_id
+                  or m.get('user_id') == user_id]
+        if len(target) > limit:
+            # Sample across the lesson rather than silently dropping its beginning.
+            selected = {target[round(i * (len(target)-1) / max(1, limit-1))] for i in range(limit)}
+        else:
+            selected = set(target)
+        for i in range(len(history or []) - 1, -1, -1):
+            if len(selected) >= limit:
+                break
+            selected.add(i)
+        return [history[i] for i in sorted(selected)]
 
     def _normalize_topics(
         self, topics: List[Dict[str, Optional[str]]]
@@ -540,7 +458,7 @@ class DiscussionSummarizer:
                     "topic": topic["name"],
                     "relevance_score": 0.0,
                     "related_statements": [],
-                    "summary": "이 주제와 관련된 발언이 없습니다."
+                    "summary": ""
                 }
                 for topic in topics
             ],

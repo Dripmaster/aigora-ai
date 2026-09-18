@@ -1,6 +1,6 @@
-import random
+from app.financial_prompts import QUESTION_RULES
+from app.financial_profile import FACILITATOR_PROMPT, lesson_text, video_script
 from typing import Dict, List, Optional
-from datetime import datetime
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
@@ -13,7 +13,7 @@ class QuestionGenerator2:
     def __init__(self):
         self.api_key = os.getenv("OPENAI_API_KEY")
         if self.api_key:
-            self.client = OpenAI(api_key=self.api_key)
+            self.client = OpenAI(api_key=self.api_key, timeout=20.0, max_retries=0)
             self.gpt_enabled = True
             self.model = "gpt-4o-mini"
             print(f"QuestionGenerator2: OpenAI API 키 설정 완료")
@@ -31,55 +31,7 @@ class QuestionGenerator2:
         self.recent_questions = []  # 최근 생성된 질문들 (최대 10개 유지)
 
         # AI 페르소나: 숙련된 토론 퍼실리테이터
-        self.facilitator_persona = """당신은 **CJ 식음 교육센터의 수석 토론 퍼실리테이터**입니다.
-
-**경력 및 전문성:**
-- 15년간 대기업 교육 프로그램 토론 진행 경험
-- 10~30명 규모의 대규모 토론 운영 전문가
-- 교육학 석사 및 퍼실리테이션 전문 자격 보유
-- CJ 4대 가치(정직/열정/창의/존중)를 깊이 이해하고 실천
-
-**토론 운영 철학:**
-- "모든 참여자가 주인공입니다" - 한 명도 소외되지 않는 토론
-- "경청과 공감이 먼저입니다" - 판단 전에 이해하기
-- "실무 현장의 목소리를 담습니다" - 실천 가능한 해법 찾기
-- "배움은 즐거워야 합니다" - 부담 없이 편안한 분위기
-
-**토론 진행 스킬:**
-- 발언 균형 조정: 과도한 발언자 조율, 조용한 참여자 격려
-- 시간 관리: 주제별 시간 안배 및 흐름 조절
-- 갈등 중재: 의견 충돌 시 건설적 방향 유도
-- 깊이 있는 질문: 피상적 답변을 넘어 본질 탐구
-- 즉각적 피드백: 긍정 강화 및 건설적 조언
-
-**말투 특징:**
-- 친근하면서도 전문성 있는 존댓말 (예: "~하시는군요", "~해주시면 좋을 것 같아요")
-- 따뜻한 격려와 인정 (예: "좋은 지적이세요!", "그 경험 정말 소중하네요")
-- 구체적이고 실천적인 질문 (예: "그때 어떤 감정이셨나요?", "다음엔 어떻게 하실 건가요?")
-- 적절한 이모지 활용으로 친근감 UP (😊, 👏, 💡, ✨)
-
-**교육 컨텐츠 활용:**
-- 슬라이드 핵심 내용을 자연스럽게 질문에 녹이기
-- 영상 속 사례를 토론 소재로 연결하기
-- 이론과 실무를 연결하는 브릿지 질문 던지기
-- 학습 목표 달성을 위한 전략적 질문 설계
-
-**중요: 토론 내용 분석 기반 질문 생성**
-- **AI가 토론 내용을 깊이 분석하고 있음을 드러내세요**
-- 단순한 참여 유도가 아닌, 토론 흐름을 읽고 있다는 인상을 주세요
-- 최근 나온 의견/키워드를 자연스럽게 언급하세요
-- 토론의 방향성을 제시하는 분석적 질문을 하세요
-
-**금기사항:**
-- ❌ 딱딱하고 형식적인 말투
-- ❌ 참여 강요나 압박
-- ❌ 교육 내용과 무관한 질문
-- ❌ 비난이나 부정적 피드백
-- ❌ 토론 내용을 무시한 단순 참여 유도만 (예: "어떻게 생각하세요?" 같은 일반적 질문)
-
-**목표:**
-토론 내용을 깊이 분석하고 있음을 보여주며, 참여자가 자연스럽게 토론에 합류할 수 있는 맥락 있는 질문 제공
-"""
+        self.facilitator_persona = FACILITATOR_PROMPT
 
         self.system_prompt = self.facilitator_persona
 
@@ -113,67 +65,10 @@ class QuestionGenerator2:
             return False
 
     def get_video_script(self, video_id: str) -> str:
-        """
-        특정 비디오의 전체 스크립트 반환 (시나리오, 대화, 토론 질문 포함)
+        return video_script(self.educational_data, video_id)
 
-        Args:
-            video_id: 비디오 ID (예: "video_tous_1")
-
-        Returns:
-            포맷팅된 비디오 스크립트
-        """
-        video_content = self.educational_data.get("video_content", {})
-        if video_id not in video_content:
-            return "영상 스크립트를 찾을 수 없습니다."
-
-        video = video_content[video_id]
-
-        # 스크립트 구성
-        script = f"""제목: {video.get('topic', 'N/A')}
-브랜드: {video.get('brand', 'N/A')}"""
-
-        # role 필드가 있는 경우 추가
-        if 'role' in video:
-            script += f"\n직무: {video.get('role', 'N/A')}"
-
-        script += f"""
-핵심 가치: {', '.join(video.get('main_values', []))}
-
-시나리오: {video.get('scenario', 'N/A')}
-
-배경: {video.get('scene', 'N/A')}
-
-등장인물: {video.get('characters', 'N/A')}
-
-나레이션: {video.get('narration', 'N/A')}
-
-대화 내용:
-"""
-        # 대화 추가 (텍스트 배열 형식)
-        for dialogue in video.get('dialogue', []):
-            script += f"{dialogue}\n"
-
-        # 토론 질문 추가
-        script += "\n토론 질문:\n"
-        for idx, question in enumerate(video.get('discussion_questions', []), 1):
-            script += f"{idx}. {question}\n"
-
-        return script
-
-    def get_slide_content_text(self) -> str:
-        """
-        슬라이드 내용을 하나의 텍스트로 반환
-
-        Returns:
-            포맷팅된 슬라이드 내용
-        """
-        slide_content = self.educational_data.get("slide_content", {})
-
-        text = ""
-        for slide_id, content in slide_content.items():
-            text += f"### {slide_id}\n{content}\n\n"
-
-        return text.strip()
+    def get_slide_content_text(self, video_id: str) -> str:
+        return lesson_text(self.educational_data, video_id)
 
     # ========== 질문 생성 핵심 메서드 ==========
 
@@ -187,8 +82,8 @@ class QuestionGenerator2:
             nickname: 질문 대상 참여자 닉네임
             discussion_topic: 현재 토론 주제
             video_script: 현재 토론 중인 영상의 스크립트
-            slide_content: 슬라이드 내용 (항상 같음)
-            chat_history: 실시간 채팅 내역 [{"nickname": "김매니저", "text": "저는..."}, ...]
+            slide_content: 현재 차시 슬라이드 및 보충 자료
+            chat_history: 실시간 채팅 내역 [{"nickname": "참여자", "text": "저는..."}, ...]
         """
 
         # 전체 채팅 내용 파악
@@ -199,7 +94,7 @@ class QuestionGenerator2:
             for msg in chat_history[-recent_count:]:
                 chat_summary += f"- {msg.get('nickname', '참여자')}: {msg.get('text', '')}\n"
         else:
-            chat_summary = "**토론 내역:** 아직 토론이 시작되지 않았습니다.\n"
+            chat_summary = "**토론 내역:** 제공된 대화 기록이 없습니다.\n"
 
         # 최근 생성된 질문 히스토리 추가 (중복 방지)
         recent_questions_text = ""
@@ -207,63 +102,19 @@ class QuestionGenerator2:
             recent_questions_text = "\n**최근 생성된 질문 (중복 방지):**\n"
             for q in self.recent_questions[-5:]:  # 최근 5개만
                 recent_questions_text += f"- {q}\n"
-            recent_questions_text += "\n위 질문들과 다른 새로운 표현과 내용으로 질문을 생성해주세요.\n"
+            recent_questions_text += "\n최근 질문과 의미가 같은 질문은 반복하지 마세요.\n"
 
-        prompt = f"""[토론 세션 정보]
-**토론 주제:** {discussion_topic}
-
-**영상 스크립트:**
+        prompt = f"""[대상 참여자] {nickname}
+[현재 토론 주제] {discussion_topic}
+[영상 내용]
 {video_script}
-
-**슬라이드 내용:**
+[현재 차시 자료 및 보충 교재]
 {slide_content}
-
+[최근 대화]
 {chat_summary}
+[최근 질문]
 {recent_questions_text}
-
-[질문 생성 미션]
-{nickname}님에게 질문이나 답변을 생성할지 결정해주세요.
-
-🚨 **1단계: 먼저 질문이 필요한지 판단 (매우 중요!)**
-
-최근 10개 메시지를 분석하여 다음 중 하나라도 해당되면 **반드시 need_question: false**로 설정:
-
-1. ✋ {nickname}님이 **최근 1-3개 메시지 안에** 의미있는 발언을 했음
-   - 예: "{nickname}: 저는 정직이 중요하다고 생각합니다..."
-
-2. ✋ {nickname}님이 **최근 10개 중 3개 이상** 발언했음 (이미 충분히 참여)
-
-3. ✋ **다른 참여자가** {nickname}님에게 **방금 질문**했음
-   - 예: "김민수: {nickname}님, 어떻게 생각하세요?"
-
-4. ✋ {nickname}님이 **질문에 답변하는 중**임
-   - 예: "김민수: {nickname}님 의견은?" → "{nickname}: 네, 저는..."
-
-5. ✋ {nickname}님이 **전혀 발언하지 않았지만** 토론이 매우 활발함
-
-위 조건에 해당되지 않고 질문이 필요한 경우만 **need_question: true** 설정
-
-📝 **2단계: 질문이 필요하면 생성**
-
-need_question이 true인 경우에만:
-1. **교육 내용 연계**: 영상 스크립트와 슬라이드 내용 활용
-2. **토론 흐름 고려**: 최근 채팅 맥락 반영
-3. **친근한 톤**: 이모지, 따뜻한 말투
-4. **한 문장**: 간결하고 명확하게
-
-**응답 형식 (JSON만 출력):**
-{{
-  "need_question": true 또는 false,
-  "reason": "판단 이유를 한 문장으로",
-  "question": "질문 문장 (need_question이 false면 빈 문자열)"
-}}
-
-**예시:**
-- need_question이 false인 경우:
-{{"need_question": false, "reason": "{nickname}님이 방금 발언했음", "question": ""}}
-
-- need_question이 true인 경우:
-{{"need_question": true, "reason": "{nickname}님이 오랫동안 침묵", "question": "{nickname}님 생각도 듣고 싶어요! 😊"}}"""
+{QUESTION_RULES}"""
 
         return prompt
 
@@ -297,82 +148,31 @@ need_question이 true인 경우에만:
                         {"role": "system", "content": self.system_prompt},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.7,  # 1.0 -> 0.7 (더 일관된 판단)
+                    temperature=0.7,
                     max_tokens=200,  # 150 -> 200 (JSON 응답 충분히 수용)
                     response_format={"type": "json_object"}  # JSON 형식 강제
                 )
 
                 content = response.choices[0].message.content.strip()
 
-                # JSON 파싱
-                try:
-                    result = json.loads(content)
-                    need_question = result.get("need_question", True)
-                    reason = result.get("reason", "")
-                    question = result.get("question", "")
-
-                    print(f"[GPT 분석] {nickname}님 - need_question: {need_question}, reason: {reason}")
-
-                    if not need_question:
-                        # 질문이 불필요한 경우
-                        print(f"[결과없음] {nickname}님께 질문 생성하지 않음 - {reason}")
-                        return "결과없음"
-                    else:
-                        # 질문이 필요한 경우
-                        if not question:
-                            # question이 비어있으면 폴백
-                            return self._generate_fallback_question(nickname)
-
-                        # 생성된 질문을 히스토리에 추가 (최대 10개 유지)
-                        self.recent_questions.append(question)
-                        if len(self.recent_questions) > 10:
-                            self.recent_questions.pop(0)
-
-                        print(f"[GPT 질문 생성] {nickname}님께: {question}")
-                        return question
-
-                except json.JSONDecodeError as e:
-                    print(f"JSON 파싱 오류: {e}, 응답 내용: {content}")
-                    # JSON 파싱 실패 시 기존 방식으로 처리
-                    if content == "결과없음":
-                        return "결과없음"
-                    return content
+                result = json.loads(content)
+                if not isinstance(result, dict) or result.get('need_question') is not True:
+                    return '결과없음'
+                question = result.get('question')
+                if not isinstance(question, str) or not question.strip():
+                    return '결과없음'
+                question = question.strip()
+                self.recent_questions.append(question)
+                self.recent_questions = self.recent_questions[-10:]
+                return question
 
             except Exception as e:
-                print(f"GPT API 오류: {e}, 템플릿 모드로 전환")
+                print(f"AI 생성 실패: {type(e).__name__}")
                 return self._generate_fallback_question(nickname)
 
         # 템플릿 기반 폴백
         return self._generate_fallback_question(nickname)
 
     def _generate_fallback_question(self, nickname: str) -> str:
-        """템플릿 기반 폴백 질문 (중복 방지 포함)"""
-        templates = [
-            f"{nickname}님, 환영합니다! 😊 오늘 주제에 대해 어떻게 생각하시나요?",
-            f"{nickname}님의 소중한 의견도 듣고 싶어요! ✨ 편하게 생각 나눠주시겠어요?",
-            f"{nickname}님, 토론 주제 관련해서 경험이나 의견 있으시면 들려주세요! 👋",
-            f"{nickname}님 생각도 궁금한데요! 💡 어떤 점이 인상적이셨나요?",
-            f"{nickname}님, 혹시 비슷한 경험 있으셨나요? 😄 나눠주시면 좋을 것 같아요!",
-            f"{nickname}님의 이야기도 들려주세요! 🌟",
-            f"{nickname}님, 함께 이야기 나누면 더 좋을 것 같아요! 😄",
-            f"{nickname}님의 시각도 공유해주시면 어떨까요? 👍",
-            f"{nickname}님, 어떤 생각이 드시는지 편하게 말씀해주세요! 🙂",
-            f"{nickname}님의 경험도 듣고 싶어요! 🎯"
-        ]
-
-        # 중복 방지: 최근 사용된 템플릿 제외
-        available_templates = [t for t in templates if t not in self.recent_questions[-5:]]
-
-        # 모든 템플릿이 최근에 사용되었다면 전체 풀에서 선택
-        if not available_templates:
-            available_templates = templates
-
-        question = random.choice(available_templates)
-
-        # 생성된 질문을 히스토리에 추가
-        self.recent_questions.append(question)
-        if len(self.recent_questions) > 10:
-            self.recent_questions.pop(0)
-
-        print(f"[템플릿 질문] {nickname}님께: {question}")
-        return question
+        """Do not invent a context-free interruption when generation fails."""
+        return '결과없음'

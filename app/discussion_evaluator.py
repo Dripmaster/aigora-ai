@@ -1,23 +1,24 @@
+from app.financial_prompts import PERSONAL_RULES, OVERALL_RULES
 import json
 import os
 from typing import Dict, List, Optional
 from datetime import datetime
 from openai import OpenAI
 from dotenv import load_dotenv
-from .message_classifier import MessageClassifier
+from app.financial_profile import AXES, AXIS_PROMPT, FACILITATOR_PROMPT, RUBRIC_PROMPT, normalized_scores
 
 load_dotenv()
 
 class PersonalEvaluator:
     """
-    CJ 식음 서비스 매니저 교육용 개인 토론 총평 생성기
+    자립준비청년 금융교육 교육용 개인 토론 총평 생성기
     개별 참여자의 토론 성과를 종합 평가하여 맞춤형 피드백 제공
     """
 
     def __init__(self):
         self.api_key = os.getenv("OPENAI_API_KEY")
         if self.api_key:
-            self.client = OpenAI(api_key=self.api_key)
+            self.client = OpenAI(api_key=self.api_key, timeout=20.0, max_retries=0)
             self.gpt_enabled = True
             self.model = "gpt-4o-mini"
             print(f"PersonalEvaluator: OpenAI API 키 설정 완료")
@@ -26,58 +27,20 @@ class PersonalEvaluator:
             print("PersonalEvaluator: OpenAI API 키 설정 실패 - 기본 총평 사용")
 
         # 기존 분류기 활용
-        self.classifier = MessageClassifier()
+
 
         # GPT 개인 총평 생성 프롬프트
-        self.evaluation_prompt = """당신은 CJ 식음 서비스 매니저 교육 프로그램의 전문 평가자입니다.
-
-개별 참여자의 토론 발언을 종합 분석하여 개인 맞춤형 총평을 작성해주세요:
-
-**CJ 인재상 개인 평가 기준:**
-- 정직: 솔직하고 투명한 의견 표현, 진실된 소통 태도
-- 열정: 적극적 참여 의지, 업무에 대한 헌신과 도전 정신
-- 창의: 새로운 아이디어 제시, 문제 해결의 혁신적 접근
-- 존중: 타인 배려, 경청과 공감을 통한 협력적 자세
-
-**개인 평가 중점 사항:**
-1. 개인의 고유한 강점과 특성 파악
-2. 토론 참여 패턴과 소통 스타일 분석
-3. CJ 인재상 발현 정도를 세밀하게 평가 (0-100점)
-4. 개인별 성장 가능성과 발전 방향 제시
-5. 실무에 적용 가능한 구체적 조언
-
-**피드백 스타일:**
-- 개인의 특성을 인정하고 격려하는 톤
-- 강점을 부각시키면서 성장 영역 안내
-- CJ 가치와 연결된 실무 적용 가이드
-- 한국적 비즈니스 예의를 갖춘 정중한 표현
-- 각 텍스트 필드는 150-200자로 충분히 상세하게 작성
-
-응답 형식은 반드시 다음 JSON 형태로만 제공하세요:
-{
-  "overall_score": 전체점수,
-  "cj_trait_scores": {
-    "정직": 점수,
-    "열정": 점수,
-    "창의": 점수,
-    "존중": 점수
-  },
-  "participation_summary": "개인의 토론 참여 스타일과 특징을 150-200자로 상세히 분석",
-  "strengths": ["개인 고유 강점1", "개인 고유 강점2", "개인 고유 강점3"],
-  "improvements": ["개인 맞춤 개선점1", "개인 맞춤 개선점2"],
-  "personalized_feedback": "개인별 맞춤 총평과 성장 방향을 150-200자로 충분히 상세하게 작성",
-  "top_messages": ["가장 인상적이고 특징적인 발언 1-2개"]
-}"""
+        self.evaluation_prompt = FACILITATOR_PROMPT + '\n' + RUBRIC_PROMPT + '\n' + PERSONAL_RULES + '\n제공된 발언 근거로 4축을 0~100 정수로 평가하세요. 세부 기준은 검수 전 초안입니다.\n참여 횟수만으로 역량이나 실제 실행을 단정하지 마세요. 반드시 다음 JSON 형식으로 응답하세요:\n{"overall_score":0,"cj_trait_scores":{"금융이해":0,"위험인식":0,"계획성":0,"실천의지":0},"participation_summary":"발언 근거","strengths":[],"improvements":[],"personalized_feedback":"근거에 따른 피드백","top_messages":[]}'
 
     def evaluate_user(self, user_id: str, user_messages: List[Dict], discussion_context: Optional[Dict] = None) -> Dict:
         """
         개별 사용자의 토론 참여를 종합 분석하여 개인 맞춤형 총평 생성
-        
+
         Args:
             user_id: 사용자 ID
             user_messages: 사용자의 모든 발언 리스트 [{"text": "...", "timestamp": "..."}, ...]
             discussion_context: 토론 맥락 정보 (주제, 시간 등)
-            
+
         Returns:
             개인 맞춤형 총평 결과 딕셔너리
         """
@@ -113,18 +76,7 @@ class PersonalEvaluator:
                 if discussion_context.get("total_participants"):
                     context_info += f"전체 참여자: {discussion_context['total_participants']}명\n"
 
-            # 기존 분류기로 각 발언 분석
-            classifications = []
-            for msg in user_messages:
-                result = self.classifier.classify(msg["text"], user_id)
-                classifications.append({
-                    "text": msg["text"],
-                    "primary_trait": result["primary_trait"],
-                    "scores": result["cj_values"]
-                })
-
-            # 분류 결과 요약
-            classification_summary = self._summarize_classifications(classifications)
+            classification_summary = "위 발언 원문과 금융교육 4축 기준을 직접 대조하세요."
 
             user_prompt = f"""{context_info}
 
@@ -134,11 +86,10 @@ class PersonalEvaluator:
 **개인 발언 전체 내역:**
 {chr(10).join(messages_text)}
 
-**개인별 CJ 인재상 발현 분석:**
+**개인별 금융교육 발언 4축 발현 분석:**
 {classification_summary}
 
-위 내용을 토대로 {user_id}님만의 고유한 특성과 강점을 파악하여 개인 맞춤형 총평을 작성해주세요.
-특히 이 분의 토론 스타일, 소통 방식, CJ 인재상 발현 패턴을 중심으로 개인화된 피드백을 제공해주세요."""
+위 발언의 강점과 보완점을 금융교육 4축 기준으로 분석하고, 학생의 목표와 조건에 맞는 구체적인 다음 행동을 제안하세요. 근거 없는 강점은 빈 배열로 남기세요."""
 
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -146,13 +97,29 @@ class PersonalEvaluator:
                     {"role": "system", "content": self.evaluation_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.7,
+                temperature=0.2,
                 max_tokens=800,
                 response_format={"type": "json_object"}
             )
 
             result = json.loads(response.choices[0].message.content)
-            
+
+            result["cj_trait_scores"] = normalized_scores(result.get("cj_trait_scores"))
+            # Preserve the public list-of-strings contract even when the model
+            # separates an action and its reason into an object.
+            for field in ('strengths', 'improvements'):
+                items = result.get(field, [])
+                if not isinstance(items, list):
+                    items = [items]
+                normalized = []
+                for item in items:
+                    if isinstance(item, dict):
+                        item = ' '.join(str(item[key]).strip() for key in
+                                        ('strength', 'improvement', 'reason')
+                                        if isinstance(item.get(key), str) and item[key].strip())
+                    if isinstance(item, str) and item.strip():
+                        normalized.append(item.strip())
+                result[field] = normalized
             # 결과에 메타데이터 추가
             result["user_id"] = user_id
             result["evaluation_date"] = datetime.now().isoformat()
@@ -168,61 +135,33 @@ class PersonalEvaluator:
 
     def _summarize_classifications(self, classifications: List[Dict]) -> str:
         """개인별 발언 분류 결과를 요약"""
-        trait_counts = {"정직": 0, "열정": 0, "창의": 0, "존중": 0}
+        trait_counts = {"금융이해": 0, "위험인식": 0, "계획성": 0, "실천의지": 0}
         high_score_messages = []
 
         for cls in classifications:
             trait_counts[cls["primary_trait"]] += 1
-            
+
             # 높은 점수 발언 추출
             max_score = max(cls["scores"].values())
             if max_score >= 50:
                 high_score_messages.append(f"- {cls['text'][:50]}... ({cls['primary_trait']}: {max_score}점)")
 
-        summary = "개인 인재상 발현 패턴: "
+        summary = "개인 발언의 금융 4축 근거: "
         summary += ", ".join([f"{trait} {count}회" for trait, count in trait_counts.items() if count > 0])
-        
+
         if high_score_messages:
             summary += f"\n\n특징적 발언 예시:\n" + "\n".join(high_score_messages[:3])
-        
+
         return summary
 
-    def _generate_personal_fallback(self, user_id: str, user_messages: List[Dict]) -> Dict:
-        """GPT 실패시 기본 개인 총평 생성"""
-        # 기존 분류기로 각 발언 분석
-        classifications = []
-        for msg in user_messages:
-            result = self.classifier.classify(msg["text"], user_id)
-            classifications.append(result)
-
-        # 평균 점수 계산
-        avg_scores = {}
-        for trait in ["정직", "열정", "창의", "존중"]:
-            scores = [c["cj_values"][trait] for c in classifications if c["cj_values"][trait] > 0]
-            avg_scores[trait] = round(sum(scores) / len(scores)) if scores else 0
-
-        overall_score = round(sum(avg_scores.values()) / 4)
-        top_trait = max(avg_scores, key=avg_scores.get)
-
+    def _generate_personal_fallback(self, user_id, user_messages):
         return {
-            "user_id": user_id,
-            "overall_score": overall_score,
-            "cj_trait_scores": avg_scores,
-            "participation_summary": f"{user_id}님은 총 {len(user_messages)}회의 발언을 통해 적극적으로 토론에 참여해주셨습니다. 특히 '{top_trait}' 인재상이 두드러지게 발현되어 개인만의 특징적인 소통 스타일을 보여주셨습니다.",
-            "strengths": [
-                f"개인 고유의 {top_trait} 특성 발현",
-                f"{user_id}님만의 독특한 관점과 접근",
-                "일관된 토론 참여 의지"
-            ],
-            "improvements": [
-                f"{user_id}님의 강점인 {top_trait}을 더욱 발전시키기",
-                "다른 CJ 인재상과의 균형적 통합"
-            ],
-            "personalized_feedback": f"{user_id}님은 '{top_trait}' 영역에서 개인만의 독특한 강점을 보여주셨습니다. 이는 {user_id}님의 고유한 특성으로, 앞으로 이 강점을 더욱 발전시키면서 다른 인재상들과 조화롭게 통합해나가시면 CJ의 핵심 인재로 더욱 성장하실 것으로 기대됩니다.",
-            "top_messages": [msg["text"] for msg in user_messages[:2]],
-            "evaluation_date": datetime.now().isoformat(),
-            "message_count": len(user_messages),
-            "evaluation_method": "룰 기반 개인 맞춤 평가"
+            "user_id": user_id, "overall_score": 0, "cj_trait_scores": dict.fromkeys(AXES, 0),
+            "participation_summary": f"기록된 발언은 {len(user_messages)}개입니다. AI 평가를 완료하지 못했습니다.",
+            "strengths": [], "improvements": [],
+            "personalized_feedback": "AI 평가 결과가 없습니다. 강사 확인 또는 재시도가 필요합니다.",
+            "top_messages": [], "evaluation_date": datetime.now().isoformat(),
+            "message_count": len(user_messages), "evaluation_method": "평가불가"
         }
 
     def _create_no_participation_feedback(self, user_id: str) -> Dict:
@@ -230,14 +169,11 @@ class PersonalEvaluator:
         return {
             "user_id": user_id,
             "overall_score": 0,
-            "cj_trait_scores": {"정직": 0, "열정": 0, "창의": 0, "존중": 0},
-            "participation_summary": "이번 토론에 참여하지 않으셨습니다.",
+            "cj_trait_scores": {"금융이해": 0, "위험인식": 0, "계획성": 0, "실천의지": 0},
+            "participation_summary": "이번 토론에서 평가할 발언 기록이 없습니다.",
             "strengths": [],
-            "improvements": [
-                "적극적인 토론 참여",
-                "의견 표현 및 소통 활성화"
-            ],
-            "personalized_feedback": f"{user_id}님, 이번에는 토론 참여 기회를 놓치셨지만, 다음 토론에서는 {user_id}님만의 고유한 관점과 CJ 인재상을 마음껏 발휘해보시기 바랍니다. {user_id}님의 개성 있는 의견과 참여를 기대하고 있습니다.",
+            "improvements": [],
+            "personalized_feedback": "발언 기록만으로는 평가할 수 없습니다. 준비되면 영상 내용에 대한 의견이나 질문을 남겨주세요.",
             "top_messages": [],
             "evaluation_date": datetime.now().isoformat(),
             "message_count": 0,
@@ -247,23 +183,23 @@ class PersonalEvaluator:
     def get_evaluation_summary(self, user_id: str, user_messages: List[Dict], discussion_context: Optional[Dict] = None) -> str:
         """
         개인 총평의 간단한 요약 텍스트 반환 (외부 시스템 연동용)
-        
+
         Args:
             user_id: 사용자 ID
             user_messages: 사용자 발언 리스트
             discussion_context: 토론 맥락 정보
-            
+
         Returns:
             개인 총평 요약 텍스트
         """
         evaluation = self.evaluate_user(user_id, user_messages, discussion_context)
-        
+
         summary_text = f"""
 🎯 {user_id}님 개인 토론 총평
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💯 종합 점수: {evaluation['overall_score']}점
-📊 CJ 인재상 점수: 정직 {evaluation['cj_trait_scores']['정직']}점 | 열정 {evaluation['cj_trait_scores']['열정']}점 | 창의 {evaluation['cj_trait_scores']['창의']}점 | 존중 {evaluation['cj_trait_scores']['존중']}점
+📊 금융교육 발언 4축 점수: 금융이해 {evaluation['cj_trait_scores']['금융이해']}점 | 위험인식 {evaluation['cj_trait_scores']['위험인식']}점 | 계획성 {evaluation['cj_trait_scores']['계획성']}점 | 실천의지 {evaluation['cj_trait_scores']['실천의지']}점
 
 📝 참여 요약:
 {evaluation['participation_summary']}
@@ -280,17 +216,17 @@ class PersonalEvaluator:
 📅 평가일: {evaluation['evaluation_date'][:10]}
 🔧 평가방식: {evaluation['evaluation_method']}
         """
-        
+
         return summary_text.strip()
 
     def evaluate_discussion_overall(self, all_user_messages: List[Dict], discussion_context: Optional[Dict] = None) -> Dict:
         """
         전체 사용자들의 토론 참여를 종합 분석하여 AI 총평 생성
-        
+
         Args:
             all_user_messages: 모든 사용자의 발언 리스트 [{"user_id": "...", "text": "...", "timestamp": "..."}, ...]
             discussion_context: 토론 맥락 정보 (주제, 시간 등)
-            
+
         Returns:
             전체 토론 AI 총평 결과 딕셔너리
         """
@@ -312,7 +248,7 @@ class PersonalEvaluator:
             # 참여자별 발언 분석
             user_participation = {}
             for msg in all_user_messages:
-                user_id = msg.get("user_id", "익명")
+                user_id = (msg.get("user_id") or msg.get("nickname") or msg.get("speaker") or "익명")
                 if user_id not in user_participation:
                     user_participation[user_id] = []
                 user_participation[user_id].append(msg)
@@ -330,7 +266,7 @@ class PersonalEvaluator:
             # 전체 발언 요약
             total_messages = len(all_user_messages)
             total_users = len(user_participation)
-            
+
             # 참여자별 발언 수
             participation_summary = []
             for user_id, messages in user_participation.items():
@@ -339,31 +275,11 @@ class PersonalEvaluator:
             # 전체 토론 내용 구성 (모든 발언 포함)
             discussion_content = []
             for msg in all_user_messages:
-                user_id = msg.get("user_id", "익명")
+                user_id = (msg.get("user_id") or msg.get("nickname") or msg.get("speaker") or "익명")
                 text = msg.get("text", "")
                 discussion_content.append(f"- {user_id}: {text}")
 
-            discussion_overall_prompt = """당신은 CJ 식음 서비스 매니저 교육 프로그램의 전문 강사입니다.
-
-참여자들이 읽을 토론 총평을 작성해주세요:
-
-**필수 제약사항:**
-- 한글로 작성, 반드시 130자 이하 (공백 포함)
-- 절대 130자 초과 금지 - 글자 수 카운트 후 작성
-- 실제 채팅 내용의 핵심 키워드 포함
-- CJ 인재상과 연결된 구체적 분석
-
-**총평 구성:**
-1. 핵심 발언 분석 결과 (75자 내외)
-2. CJ 인재상 발현 평가 (55자 내외)
-
-**130자 제한 예시:**
-"분석 결과 솔직한 의견 공유와 창의적 아이디어 제시가 돋보였습니다. 정직과 창의 가치가 자연스럽게 발현되며 실무 중심의 깊이 있는 토론이 이루어졌어요. 앞으로도 이런 적극적 참여 기대합니다."
-
-응답 형식은 반드시 다음 JSON 형태로만 제공하세요:
-{
-  "discussion_summary": "130자 이하 총평"
-}"""
+            discussion_overall_prompt = FACILITATOR_PROMPT + '\n' + AXIS_PROMPT + '\n' + OVERALL_RULES
 
             user_prompt = f"""{context_info}
 
@@ -375,9 +291,7 @@ class PersonalEvaluator:
 **토론 주요 내용:**
 {chr(10).join(discussion_content)}
 
-위 토론 내용을 바탕으로 참여자들이 읽을 따뜻하고 격려적인 총평을 작성해주세요.
-참여자 개인의 이름은 절대 언급하지 말고, 오직 발언 내용 자체를 인용하여 분석한 결과로 작성해주세요.
-CJ 인재상 발현에 대해 구체적으로 칭찬하며, 앞으로의 실무 적용에 대한 기대와 응원 메시지를 포함해주세요."""
+위 기록의 핵심 판단을 분석하고 잘한 점과 보완할 점, 수업 이후 적용할 구체적인 행동을 제시하세요. 모든 참여자가 이해했거나 실천했다고 단정하지 마세요."""
 
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -385,13 +299,14 @@ CJ 인재상 발현에 대해 구체적으로 칭찬하며, 앞으로의 실무 
                     {"role": "system", "content": discussion_overall_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.7,
+                temperature=0.2,
                 max_tokens=800,
                 response_format={"type": "json_object"}
             )
 
             result = json.loads(response.choices[0].message.content)
-            
+
+            result["cj_trait_scores"] = normalized_scores(result.get("cj_trait_scores"))
             # 결과에 메타데이터 추가
             result["total_participants"] = total_users
             result["total_messages"] = total_messages
@@ -410,31 +325,31 @@ CJ 인재상 발현에 대해 구체적으로 칭찬하며, 앞으로의 실무 
         # 참여자별 분석
         user_participation = {}
         total_messages = len(all_user_messages)
-        
+
         for msg in all_user_messages:
-            user_id = msg.get("user_id", "익명")
+            user_id = (msg.get("user_id") or msg.get("nickname") or msg.get("speaker") or "익명")
             if user_id not in user_participation:
                 user_participation[user_id] = 0
             user_participation[user_id] += 1
 
         total_users = len(user_participation)
         avg_messages_per_user = round(total_messages / total_users) if total_users > 0 else 0
-        
+
         # 활발한 참여자 파악
         active_users = [user for user, count in user_participation.items() if count >= avg_messages_per_user]
-        
+
         return {
-            "discussion_summary": f"{total_users}명이 {total_messages}개 의견을 나눠주셨습니다. 정직한 소통과 열정적 참여가 돋보였어요. 앞으로도 이런 적극적인 자세 기대합니다.",
+            "discussion_summary": f"{total_users}명이 {total_messages}개 의견을 나눠주셨습니다. AI 총평을 완료하지 못했습니다. 발언 수 외의 평가 결과는 없습니다.",
             "total_participants": total_users,
             "total_messages": total_messages,
             "evaluation_date": datetime.now().isoformat(),
-            "evaluation_method": "룰 기반 토론 전체 평가"
+            "evaluation_method": "평가불가: 발언 수 집계만 제공"
         }
 
     def _create_no_discussion_feedback(self) -> Dict:
         """토론 참여가 없는 경우 피드백"""
         return {
-            "discussion_summary": "이번 토론에 참여가 없었습니다. 다음에는 여러분의 소중한 의견을 기대하겠습니다.",
+            "discussion_summary": "이번 토론의 발언 기록이 없어 전체 내용을 요약할 수 없습니다.",
             "total_participants": 0,
             "total_messages": 0,
             "evaluation_date": datetime.now().isoformat(),

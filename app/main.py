@@ -6,10 +6,11 @@ from fastapi import Form
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
+from html import escape
 from typing import Dict, Optional, List
 from app.question_generator2 import QuestionGenerator2
 from app.participant_monitor import ParticipantMonitor
-from app.message_classifier2 import MessageClassifier2
+from app.financial_profile import AXES, PROFILE_VERSION
 from app.message_classifier_gpt import MessageClassifierGPT
 from app.discussion_evaluator import PersonalEvaluator
 from app.answer_generator import AnswerGenerator
@@ -18,15 +19,15 @@ from app.discussion_summarizer import DiscussionSummarizer
 load_dotenv()
 
 app = FastAPI(
-    title="CJ AI API",
+    title="금융교육 AI API",
     version="2.0.0",
-    description="CJ 식음 서비스 매니저 교육용 AI API - 토론 참여 분석 및 질문 생성"
+    description="자립준비청년 금융교육용 AI API - 토론 참여 분석 및 질문 생성"
 )
 
 # 초기화
 question_generator2 = QuestionGenerator2()
 participant_monitor = ParticipantMonitor()
-message_classifier = MessageClassifier2()
+message_classifier = MessageClassifierGPT()
 message_classifier_gpt = MessageClassifierGPT()
 discussion_evaluator = PersonalEvaluator()
 answer_generator = AnswerGenerator()
@@ -39,12 +40,27 @@ if os.path.exists(educational_content_path):
 else:
     print(f"경고: educational_content.json 파일을 찾을 수 없습니다: {educational_content_path}")
 
+def classification_context(context):
+    result = dict(context or {})
+    result.pop('reference_material', None)
+    lesson = result.get('lesson_id')
+    if lesson is not None:
+        if isinstance(lesson, bool) or str(lesson) not in ('1','2','3','4'):
+            raise HTTPException(status_code=400, detail="차시는 1~4여야 합니다")
+    return result
+
+@app.get('/health')
+async def health():
+    return {'status':'ok', 'profile_version':PROFILE_VERSION,
+            'provider_configured':bool(os.getenv('OPENAI_API_KEY')),
+            'provider_connectivity':'not_checked_by_health'}
+
 class Question2Request(BaseModel):
     nickname: str
     discussion_topic: str
     video_id: str
     chat_history: List[Dict]
-    questionText:str
+    questionText: str = ""
 
 class Question2Response(BaseModel):
     question: str
@@ -88,6 +104,9 @@ class ClassifyGPTRequest(BaseModel):
     context: Optional[Dict] = None
 
 class ClassifyGPTResponse(BaseModel):
+    provider_error: Optional[str] = None
+    evaluation_status: str = "assessed"
+    profile_version: str = ""
     cj_values: Dict[str, int]
     primary_trait: str
     summary: str
@@ -147,14 +166,15 @@ class UserSummaryResponse(BaseModel):
 @app.get("/")
 async def root():
     return {
-        "message": "CJ AI API",
+        "message": "금융교육 AI API",
         "version": "2.0.0",
-        "description": "CJ 식음 서비스 매니저 교육용 AI API",
+        "description": "자립준비청년 금융교육용 AI API",
         "endpoints": {
+            "/qa": "교육 자료를 참고한 학생 질문 답변",
             "/question": "토론 참여 유도 질문 생성 (교육 컨텐츠 기반, GPT가 필요 여부 자동 판단)",
             "/encouragement": "참여 독려 멘트 생성",
-            "/classify": "메시지 CJ 인재상 분류 (규칙 기반)",
-            "/classify-gpt": "메시지 CJ 인재상 분류 (GPT 기반)",
+            "/classify": "메시지 금융교육 발언 4축 분류 (GPT 기반, 호환 엔드포인트)",
+            "/classify-gpt": "메시지 금융교육 발언 4축 분류 (GPT 기반)",
             "/profile": "사용자 종합 프로필 생성",
             "/evaluate": "개인 맞춤형 토론 총평 생성",
             "/discussion-overall": "전체 토론 AI 총평 생성",
@@ -168,15 +188,15 @@ async def root():
     }
 
 @app.post("/question", response_model=Question2Response)
-async def question(request: Question2Request):
+def question(request: Question2Request):
     """
     교육 컨텐츠 기반 토론 참여 유도 질문 생성 (QuestionGenerator2)
 
     입력:
     - nickname: 질문 대상 참여자 닉네임
     - discussion_topic: 현재 토론 주제
-    - video_id: 현재 토론 중인 영상 ID (예: "video_tous_1")
-    - chat_history: 실시간 채팅 내역 [{"nickname": "김매니저", "text": "..."}, ...]
+    - video_id: 현재 토론 중인 영상 ID (예: "financial_1")
+    - chat_history: 실시간 채팅 내역 [{"nickname": "참여자", "text": "..."}, ...]
 
     출력:
     - question: 생성된 질문 문자열 또는 "결과없음"
@@ -203,7 +223,7 @@ async def question(request: Question2Request):
     """
     try:
         # 입력 검증
-        if not request.nickname:
+        if not request.nickname.strip():
             raise HTTPException(status_code=400, detail="닉네임이 필요합니다")
 
         if not request.video_id:
@@ -219,7 +239,7 @@ async def question(request: Question2Request):
             )
 
         # 슬라이드 내용 가져오기
-        slide_content = question_generator2.get_slide_content_text()
+        slide_content = question_generator2.get_slide_content_text(request.video_id)
 
         # 질문 생성
         generated_question = question_generator2.generate_question(
@@ -246,17 +266,21 @@ async def question(request: Question2Request):
         )
     
 @app.post("/qa", response_model=Question2Response)
-async def qa(request: Question2Request):
+def qa(request: Question2Request):
     """
     교육 컨텐츠 기반 토론 참여 유도 질문 생성 (QuestionGenerator2)
 
     입력:
     - nickname: 질문 대상 참여자 닉네임
     - discussion_topic: 현재 토론 주제
-    - video_id: 현재 토론 중인 영상 ID (예: "video_tous_1")
-    - chat_history: 실시간 채팅 내역 [{"nickname": "김매니저", "text": "..."}, ...]
+    - video_id: 현재 토론 중인 영상 ID (예: "financial_1")
+    - chat_history: 실시간 채팅 내역 [{"nickname": "참여자", "text": "..."}, ...]
     """
     try:
+        if not request.questionText.strip():
+            raise HTTPException(status_code=400, detail="질문이 비어있습니다")
+        if not request.nickname.strip():
+            raise HTTPException(status_code=400, detail="닉네임이 필요합니다")
         # 입력 검증
 
         if not request.video_id:
@@ -272,7 +296,7 @@ async def qa(request: Question2Request):
             )
 
         # 슬라이드 내용 가져오기
-        slide_content = question_generator2.get_slide_content_text()
+        slide_content = question_generator2.get_slide_content_text(request.video_id)
 
         # 질문 생성
         generated_question = answer_generator.generate_answer(
@@ -299,13 +323,13 @@ async def qa(request: Question2Request):
             detail=f"질문 생성 중 오류 발생: {str(e)}"
         )
 @app.post("/encouragement", response_model=EncouragementResponse)
-async def generate_encouragement(request: EncouragementRequest):
+def generate_encouragement(request: EncouragementRequest):
     """
     참여 독려 멘트 생성
 
     입력:
     - nickname: 독려 대상 참여자 닉네임
-    - chat_history: 실시간 채팅 내역 [{"nickname": "김매니저", "text": "..."}, ...]
+    - chat_history: 실시간 채팅 내역 [{"nickname": "참여자", "text": "..."}, ...]
 
     출력:
     - nickname: 대상 참여자
@@ -313,7 +337,7 @@ async def generate_encouragement(request: EncouragementRequest):
     """
     try:
         # 입력 검증
-        if not request.nickname:
+        if not request.nickname.strip():
             raise HTTPException(status_code=400, detail="닉네임이 필요합니다")
 
         # 독려 레벨 1 (부드러운 초대) 고정
@@ -340,64 +364,72 @@ async def generate_encouragement(request: EncouragementRequest):
         )
 
 @app.post("/classify", response_model=ClassifyResponse)
-async def classify(request: ClassifyRequest):
-    """메시지를 CJ 인재상 기준으로 분류 (규칙 기반)"""
+def classify(request: ClassifyRequest):
+    """메시지를 금융교육 발언 4축 기준으로 분류 (GPT 기반, 호환 엔드포인트)"""
     try:
         # 입력 검증
         if not request.text or len(request.text.strip()) < 1:
             raise HTTPException(status_code=400, detail="메시지가 비어있습니다")
 
-        if not request.user_id:
+        if not request.user_id.strip():
             raise HTTPException(status_code=400, detail="사용자 ID가 필요합니다")
 
         # 메시지 분류 수행
         result = message_classifier.classify(
             request.text,
-            request.user_id
+            request.user_id,
+            classification_context(request.context)
         )
 
         return ClassifyResponse(
             cj_values=result["cj_values"],
-            primary_trait=result["multiple_traits"],
+            primary_trait=[axis for axis, score in result["cj_values"].items() if axis in AXES and score >= 60],
             summary=result["summary"],
             user_id=request.user_id
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"분류 처리 중 오류 발생: {str(e)}")
 
 @app.post("/classify-gpt", response_model=ClassifyGPTResponse)
-async def classify_gpt(request: ClassifyGPTRequest):
-    """메시지를 CJ 인재상 기준으로 분류 (GPT 기반)"""
+def classify_gpt(request: ClassifyGPTRequest):
+    """메시지를 금융교육 발언 4축 기준으로 분류 (GPT 기반)"""
     try:
         # 입력 검증
         if not request.text or len(request.text.strip()) < 1:
             raise HTTPException(status_code=400, detail="메시지가 비어있습니다")
 
-        if not request.user_id:
+        if not request.user_id.strip():
             raise HTTPException(status_code=400, detail="사용자 ID가 필요합니다")
 
         # GPT 메시지 분류 수행
         result = message_classifier_gpt.classify(
             request.text,
             request.user_id,
-            request.context
+            classification_context(request.context)
         )
 
         return ClassifyGPTResponse(
+            provider_error=result.get("provider_error"),
+            evaluation_status=result.get("evaluation_status", "unavailable"),
+            profile_version=result.get("profile_version", ""),
             cj_values=result["cj_values"],
             primary_trait=result["primary_trait"],
             summary=result["summary"],
             user_id=request.user_id
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GPT 분류 처리 중 오류 발생: {str(e)}")
 
 @app.post("/profile", response_model=ProfileResponse)
-async def profile(request: ProfileRequest):
+def profile(request: ProfileRequest):
     """사용자의 종합 프로필 생성"""
     try:
         # 입력 검증
-        if not request.user_id:
+        if not request.user_id.strip():
             raise HTTPException(status_code=400, detail="사용자 ID가 필요합니다")
         
         if not request.messages or len(request.messages) == 0:
@@ -427,11 +459,11 @@ async def profile(request: ProfileRequest):
         raise HTTPException(status_code=500, detail=f"프로필 생성 중 오류 발생: {str(e)}")
     
 @app.post("/evaluate", response_model=EvaluationResponse)
-async def evaluate_user(request: EvaluationRequest):
+def evaluate_user(request: EvaluationRequest):
     """개별 사용자의 토론 참여 총평 생성"""
     try:
         # 입력 검증
-        if not request.user_id:
+        if not request.user_id.strip():
             raise HTTPException(status_code=400, detail="사용자 ID가 필요합니다")
                  
         if not request.user_messages:
@@ -451,7 +483,7 @@ async def evaluate_user(request: EvaluationRequest):
         raise HTTPException(status_code=500, detail=f"총평 생성 중 오류 발생: {str(e)}")
 
 @app.post("/discussion-overall", response_model=DiscussionOverallResponse)
-async def discussion_overall(request: DiscussionOverallRequest):
+def discussion_overall(request: DiscussionOverallRequest):
     """전체 토론 참여자들의 토론 AI 총평 생성"""
     try:
         # 입력 검증
@@ -481,7 +513,7 @@ async def user_summary(request: UserSummaryRequest):
     """
     try:
         # 입력 검증
-        if not request.user_id:
+        if not request.user_id.strip():
             raise HTTPException(status_code=400, detail="사용자 ID가 필요합니다")
         if not request.discussion_topics:
             raise HTTPException(status_code=400, detail="토론 주제가 필요합니다")
@@ -489,7 +521,7 @@ async def user_summary(request: UserSummaryRequest):
             raise HTTPException(status_code=400, detail="채팅 내역이 필요합니다")
 
         # 토론 주제 목록을 dict 리스트로 정규화하여 전달
-        topics_payload = [topic.dict() for topic in request.discussion_topics]
+        topics_payload = [topic.model_dump() for topic in request.discussion_topics]
 
         # 사용자 토론 참여 분석 (새 Summarizer 인터페이스)
         result = await discussion_summarizer.summarize_user_async(
@@ -516,9 +548,9 @@ async def user_summary(request: UserSummaryRequest):
 async def form_page():
     html_content = """
     <html>
-        <head><title>CJ AI 테스트 폼</title></head>
+        <head><title>금융교육 AI 테스트 폼</title></head>
         <body>
-            <h2>CJ 인재상 메시지 분류 테스트</h2>
+            <h2>금융교육 발언 4축 메시지 분류 테스트</h2>
             <form action="/form/result" method="post">
                 <label>사용자 ID:</label><br>
                 <input type="text" name="user_id" required><br><br>
@@ -533,7 +565,7 @@ async def form_page():
 
 
 @app.post("/form/result", response_class=HTMLResponse)
-async def form_result(user_id: str = Form(...), text: str = Form(...)):
+def form_result(user_id: str = Form(...), text: str = Form(...)):
     try:
         request = ClassifyRequest(user_id=user_id, text=text)
         result = message_classifier.classify(request.text, request.user_id)
@@ -543,10 +575,10 @@ async def form_result(user_id: str = Form(...), text: str = Form(...)):
             <head><title>분석 결과</title></head>
             <body>
                 <h2>분석 결과</h2>
-                <p><strong>사용자 ID:</strong> {user_id}</p>
-                <p><strong>주된 가치:</strong> {result['multiple_traits']}</p>
-                <p><strong>요약:</strong> {result['summary']}</p>
-                <p><strong>전체 값:</strong> {result['cj_values']}</p>
+                <p><strong>사용자 ID:</strong> {escape(user_id)}</p>
+                <p><strong>주된 가치:</strong> {escape(str(result['primary_trait']))}</p>
+                <p><strong>요약:</strong> {escape(result['summary'])}</p>
+                <p><strong>전체 값:</strong> {escape(str(result['cj_values']))}</p>
                 <br><a href="/form">다시 분석하기</a>
             </body>
         </html>
@@ -554,14 +586,14 @@ async def form_result(user_id: str = Form(...), text: str = Form(...)):
         return HTMLResponse(content=html_content)
 
     except Exception as e:
-        return HTMLResponse(content=f"<h3>오류 발생: {str(e)}</h3>")
+        return HTMLResponse(content="<h3>분석을 완료하지 못했습니다.</h3>", status_code=500)
     
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     host = os.getenv("HOST", "0.0.0.0")
     
-    print(f"CJ AI API 서버 시작 중...")
+    print(f"금융교육 AI API 서버 시작 중...")
     print(f"주소: http://{host}:{port}")
     print(f"API 문서: http://{host}:{port}/docs")
     

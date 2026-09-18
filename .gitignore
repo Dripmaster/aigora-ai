@@ -90,3 +90,4 @@ tmp/
 *.pkl
 *.model
 *.weights
+.venv-financial/
