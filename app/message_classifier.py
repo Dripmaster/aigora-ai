@@ -1,3 +1,4 @@
+# LEGACY CJ ONLY: preserved for old tests; not imported by financial app.main. See docs/financial-prompts.md.
 import random
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime

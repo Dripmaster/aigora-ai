@@ -1,0 +1,43 @@
+{
+  "timestamp": "2026-09-14T15:47:51.249348+00:00",
+  "scope": "local checkout, real provider, synthetic messages; no production/DB",
+  "cases": [
+    {
+      "endpoint": "/classify-gpt",
+      "http_status": 200,
+      "seconds": 2.11,
+      "response": {
+        "evaluation_status": "unavailable",
+        "profile_version": "financial-education-2026-09-15-textbook-v1-draft",
+        "cj_values": {
+          "금융이해": 0,
+          "위험인식": 0,
+          "계획성": 0,
+          "실천의지": 0
+        },
+        "primary_trait": "평가불가",
+        "summary": "AI 분류를 완료하지 못했습니다. 점수와 강점을 추정하지 않습니다.",
+        "user_id": "financial-api-smoke"
+      }
+    }
+  ],
+  "health": {
+    "status": "ok",
+    "profile_version": "financial-education-2026-09-15-textbook-v1-draft",
+    "reference_version": "financial-textbook-2026-09-15",
+    "reference_sources": 6,
+    "provider_configured": true,
+    "provider_connectivity": "not_checked_by_health"
+  },
+  "stopped": "Initial live classifier did not produce an assessment; remaining paid calls skipped.",
+  "followup_provider_diagnostic": {
+    "scope": "single direct SDK request after unavailable classifier; synthetic prompt, max_tokens=5",
+    "exception": "RateLimitError",
+    "http_status": 429,
+    "code": "credit_balance_exhausted",
+    "type": "insufficient_quota",
+    "effective_key_source": "project .env; no inherited OPENAI_API_KEY",
+    "base_url_host": "api.openai.com",
+    "interpretation": "API credit balance exhausted; no further live model calls made"
+  }
+}
