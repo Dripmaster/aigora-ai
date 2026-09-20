@@ -50,6 +50,18 @@ class EndpointContractTests(unittest.TestCase):
    r=self.client.post('/user-summary',json={'user_id':'test','discussion_topics':[{'name':'목표'}],'chat_history':[{'nickname':'test','text':'내 목표'},{'nickname':'other','text':'다른 사람 목표'}]})
   self.assertEqual(r.status_code,200,r.text)
   self.assertEqual(r.json()['topics'][0]['related_statements'],['내 목표'])
+ def test_user_summary_preserves_short_titles_for_full_classroom_questions(self):
+  names=['목표 정하기: 필요한 금액과 기한은?', '역산하기: 매달 얼마씩 모을까요?', '상품 고르기: 어떤 저축 방법이 적합할까요?']
+  value={'user_id':'topic-test','topics':[{'topic':title,'relevance_score':.8,'related_message_ids':[1],'summary':summary} for title,summary in [
+   ('목표 정하기','1년간 120만원을 모아 노트북을 살 계획이라고 설명했다.'),
+   ('역산하기','매달 10만원을 모을 계획이라고 설명했다.'),
+   ('상품 고르기','월급 다음 날 적금에 자동이체할 계획이라고 설명했다.')]]}
+  with patch.object(service.discussion_summarizer,'async_client',sdk(value,True)),patch.object(service.discussion_summarizer,'_cache',{}):
+   r=self.client.post('/user-summary',json={'user_id':'topic-test','discussion_topics':[{'name':name} for name in names],
+    'chat_history':[{'nickname':'topic-test','text':'노트북을 사려고 1년 동안 매달 10만원씩 월급 다음 날 적금에 자동이체하겠습니다.'}]})
+  self.assertEqual(r.status_code,200,r.text)
+  self.assertEqual([t['topic'] for t in r.json()['topics']],names)
+  self.assertEqual([t['summary'] for t in r.json()['topics']],[t['summary'] for t in value['topics']])
  def test_encouragement_response(self):
   with patch.object(service.participant_monitor,'client',sdk('test님, 편하게 의견을 나눠주세요.')):
    r=self.client.post('/encouragement',json={'nickname':'test','chat_history':[]})

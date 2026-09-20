@@ -192,7 +192,7 @@ class DiscussionSummarizer:
                 "user_id": "string",
                 "topics": [
                     {
-                        "topic": "string (주제 이름만 정확히, 설명 포함 금지)",
+                        "topic": "string (입력 주제 name 전체를 콜론과 질문 문장까지 그대로 복사)",
                         "relevance_score": 0.85,
                         "related_message_ids": [1, 3, 5],
                         "summary": "string (근거 있는 1~2문장, 관련 발언이 없으면 빈 문자열)"
@@ -252,7 +252,7 @@ class DiscussionSummarizer:
                 "user_id": "string",
                 "topics": [
                     {
-                        "topic": "string (주제 이름만 정확히, 설명 포함 금지)",
+                        "topic": "string (입력 주제 name 전체를 콜론과 질문 문장까지 그대로 복사)",
                         "relevance_score": 0.85,
                         "related_message_ids": [1, 3, 5],
                         "summary": "string (근거 있는 1~2문장, 관련 발언이 없으면 빈 문자열)"
@@ -327,25 +327,33 @@ class DiscussionSummarizer:
                 "summary": summary
             })
 
-        # 원래 주제 순서에 맞춰 정렬
+        # Full classroom questions use "title: question" as their name. A model
+        # may return only the title; accept it only when it identifies one topic.
+        title_counts = {}
+        for original_topic in topics:
+            title = original_topic["name"].lower().strip().partition(":")[0].strip()
+            title_counts[title] = title_counts.get(title, 0) + 1
+
+        # 원래 주제 순서와 전체 이름을 유지한다. 정확한 이름 일치가 우선이다.
         ordered_topics = []
         for original_topic in topics:
-            found = False
             original_name = original_topic["name"].lower().strip()
+            resolved = next((item for item in resolved_topics
+                             if item["topic"].lower().strip() == original_name), None)
+            if resolved is None:
+                # Preserve legacy responses that append a description with " -".
+                resolved = next((item for item in resolved_topics
+                                 if item["topic"].lower().strip().startswith(original_name + " -")), None)
+            title = original_name.partition(":")[0].strip()
+            if resolved is None and title != original_name and title_counts[title] == 1:
+                candidates = [item for item in resolved_topics
+                              if item["topic"].lower().strip() == title]
+                if len(candidates) == 1:
+                    resolved = candidates[0]
 
-            for resolved in resolved_topics:
-                resolved_name = resolved["topic"].lower().strip()
-
-                # 정확히 일치하거나, GPT가 설명을 포함한 경우 처리
-                # 예: "목표 정하기" vs "목표 정하기 - 저축 계획..."
-                if resolved_name == original_name or resolved_name.startswith(original_name + " -"):
-                    # 주제 이름을 원본으로 교체
-                    resolved["topic"] = original_topic["name"]
-                    ordered_topics.append(resolved)
-                    found = True
-                    break
-
-            if not found:
+            if resolved is not None:
+                ordered_topics.append({**resolved, "topic": original_topic["name"]})
+            else:
                 ordered_topics.append({
                     "topic": original_topic["name"],
                     "relevance_score": 0.0,
